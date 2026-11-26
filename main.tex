@@ -1,0 +1,705 @@
+\RequirePackage{fix-cm}
+\documentclass[runningheads,twocolumn]{llncs}
+
+\usepackage[a4paper,top=2.0cm,bottom=2.0cm,left=1.6cm,right=1.6cm,columnsep=0.6cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish,es-tabla,es-nodecimaldot,es-noquoting]{babel}
+
+\usepackage{microtype}
+\usepackage{etoolbox}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\PassOptionsToPackage{hyphens}{url}
+\usepackage{url}
+\usepackage{tikz}
+\usetikzlibrary{babel,positioning,arrows.meta,shapes.geometric,fit,backgrounds,calc}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=blue,
+    urlcolor=blue
+}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+\appto\UrlBreaks{\do\/\do-\do\_\do.\do=\do?\do&\do:\do0\do1\do2\do3\do4\do5\do6\do7\do8\do9}
+
+% Unificación idiomática completa al español para la clase llncs
+\AtBeginDocument{%
+  \shorthandoff{"}%
+  \def\andname{y}%
+  \def\lastandname{ y}%
+  \def\keywordname{\textbf{Palabras clave:}}%
+  \def\ackname{Agradecimientos.}%
+  \def\ethicsname{Declaración ética y protección de datos.}%
+  \def\discintname{Declaración de intereses y uso de IA.}%
+}
+\addto\captionsspanish{%
+  \renewcommand{\abstractname}{Resumen.}%
+  \renewcommand{\tablename}{Tabla}%
+  \renewcommand{\figurename}{Fig.}%
+}
+
+% Ajuste del entorno abstract para formato de dos columnas sin márgenes excesivos
+\renewenvironment{abstract}{%
+  \par\addvspace{0.35\baselineskip}\small\noindent\textbf{\abstractname}\enspace\ignorespaces
+}{\par\addvspace{0.45\baselineskip}}
+
+% Contador independiente para algoritmos sin alterar la numeración de tablas
+\newcounter{algoritmo}
+\renewcommand{\thealgoritmo}{\arabic{algoritmo}}
+
+\raggedbottom
+\emergencystretch=2.2em
+
+\begin{document}
+
+% --- METADATOS (Máx. 15 palabras en título) ---
+\title{Arquitectura Zero Trust con DNIe 3.0 y PAdES-LTV para Gestión Documental en ONG de Lima}
+
+\titlerunning{Arquitectura Zero Trust con DNIe 3.0 en ONG}
+
+\author{Eduardo Eusebio Sihuar Ccotarma-Ttito\inst{1}\orcidID{0009-0001-5979-6395} \and
+Valentino Sebastian Cervantes-Erequita\inst{1}\orcidID{0009-0004-2451-0096} \and
+Abel Nehemias Rosales-Caururu\inst{1}\orcidID{0000-0002-5331-1772}}
+
+\authorrunning{E. Ccotarma-Ttito et al.}
+
+\institute{Facultad de Ingeniería, Programa Académico de Ingeniería de Software,\\
+Universidad Peruana de Ciencias Aplicadas, Av. Salaverry 2255, San Isidro 15076, Lima, Perú\\
+\email{\{u20211c736, u202110140, pcsiaros\}@upc.edu.pe}}
+
+\maketitle
+
+% --- RESUMEN EN ESPAÑOL (1 párrafo, honesto respecto al protocolo pendiente de ejecución) ---
+\begin{abstract}
+Los sistemas de gestión documental digital son esenciales para la transparencia y la rendición de cuentas en las organizaciones no gubernamentales (ONG); sin embargo, los repositorios perimetrales tradicionales carecen de vinculación criptográfica por hardware en el cliente, delegan la verificación de firmas a visores PDF vulnerables al engaño visual y exponen las bitácoras ante administradores internos privilegiados. Se diseña, modela formalmente e implementa \textbf{Ch'asca}, una arquitectura web de Confianza Cero (Zero Trust) para la gestión documental en una ONG de Lima Metropolitana que integra el Documento Nacional de Identidad electrónico peruano (DNIe 3.0) y firmas digitales con validación a largo plazo (PAdES-LTV). La solución articula un agente local residente (\texttt{KILLAgent}) endurecido frente a secuestro WebSocket entre sitios y sustitución de resúmenes criptográficos, autenticación en dos fases por reto--respuesta con DNIe 3.0 y JWT en memoria, control de acceso contextual híbrido (RBAC + ABAC), validación determinista cerrada ante fallos en servidor y persistencia dual que separa objetos binarios bajo retención de escritura única y lectura múltiple (WORM) de bitácoras relacionales selladas por fila con HMAC-SHA256 y anclaje externo periódico. Asimismo, se formaliza un protocolo experimental reproducible de estudio de caso único sobre 300 documentos anonimizados o sintéticos equivalentes y 900 vectores de seguridad y latencia (pendiente de ejecución empírica) para evaluar metas superiores al 90\% en autenticación por hardware y al 95\% en precisión PAdES-LTV frente a una línea base tradicional implementada.
+
+\keywords{Confianza cero (Zero Trust) \and Control de acceso basado en atributos (ABAC) \and PAdES-LTV \and Identidad electrónica nacional (DNIe 3.0) \and Tarjetas inteligentes (PKCS\#11) \and Almacenamiento inmutable (WORM).}
+\end{abstract}
+
+% --- SECCIÓN 1: INTRODUCCIÓN ---
+\section{Introducción}\label{sec:intro}
+
+La digitalización administrativa ha convertido a los DMS (Sistemas de Gestión Documental, por sus siglas en inglés) en infraestructuras críticas para recibir, clasificar y custodiar activos institucionales \cite{han2025,satybaldy2022}. No obstante, esta expansión ha incrementado la exposición frente a incidentes de seguridad de alto impacto \cite{swapna2026}. De acuerdo con el informe global de IBM y el Ponemon Institute \cite{ibm2024}, el costo promedio mundial de una filtración de datos alcanzó los 4.88 millones de dólares en 2024 (un incremento interanual del 10\%), mientras que el reporte de investigaciones de brechas de Verizon \cite{verizon2024} documenta que el 35\% de las brechas analizadas involucró actores internos dentro de la propia organización (tanto errores no intencionados como uso indebido de privilegios). Este escenario resulta particularmente crítico para las ONG (Organizaciones No Gubernamentales) de Lima Metropolitana, las cuales gestionan expedientes financieros auditables por entidades cooperantes e información sujeta a la Ley N.º 29733 \cite{ley29733} sobre infraestructuras centralizadas y presupuestos limitados.
+
+Históricamente, los repositorios documentales han dependido de modelos perimetrales tipo ``castillo y foso'' (\textit{castle-and-moat}), los cuales conceden confianza implícita dentro de la red interna \cite{soni2026,nam2026}. Para superar sus fallas frente al movimiento lateral y a las amenazas internas (\textit{insider threats}), el paradigma ZTA (Arquitectura de Confianza Cero, por sus siglas en inglés), formalizado en el estándar NIST (Instituto Nacional de Estándares y Tecnología) SP 800-207 \cite{rose2020}, impone el principio de ``nunca confiar, siempre verificar'' mediante verificación explícita por sesión, privilegio mínimo y evaluación continua del contexto \cite{nam2026,sammartino2026,alenezi2026}.
+
+Sin embargo, el examen de la literatura reciente revela cuatro brechas estructurales que dificultan su adopción en ONG locales:
+\begin{enumerate}
+    \item \textbf{Insuficiencia del control estático y costo de redes descentralizadas:} Los DMS basados en RBAC (Control de Acceso Basado en Roles) estático no contienen el abuso de credenciales por un DBA (Administrador de Bases de Datos) \cite{han2025,soni2026}. Por su parte, las soluciones que combinan IPFS (Sistema de Archivos Interplanetario) y contratos inteligentes en Ethereum introducen costos transaccionales variables (\textit{gas}) y latencias de confirmación superiores a 12 s \cite{han2025,swapna2026}, mientras que las suites ZTNA comerciales exigen entre 60\,000 y 100\,000 USD anuales \cite{swapna2026}.
+    \item \textbf{Aislamiento de navegadores frente al hardware criptográfico ciudadano:} Aunque las firmas PAdES (Firmas Electrónicas Avanzadas en PDF) otorgan validez jurídica equivalente a la manuscrita \cite{doynov2026,etsi2024,ley27269}, el aislamiento (\textit{sandboxing}) de los navegadores web impide acceder directamente al estándar PKCS\#11 (Estándares de Criptografía de Clave Pública \#11) del DNIe 3.0 sin delegar claves privadas a módulos comerciales en la nube \cite{liu2026,reniec2025}. A su vez, exponer servicios locales en bucle invertido (\textit{loopback}) introduce una superficie de ataque específica que debe endurecerse.
+    \item \textbf{Vulnerabilidad de engaño visual en visores PDF:} Heher et al. \cite{heher2027} demostraron mediante los vectores \textit{Genuine PDF Forgeries} que el 71.9\% de los usuarios y cinco de cada seis procesos reales aceptan documentos con apariencia visual falsificada porque la norma ISO 32000-2 desvincula la representación gráfica respecto del certificado X.509 real.
+    \item \textbf{Desconexión entre ciclo de vida documental y trazabilidad inmutable:} Persiste la ausencia de bitácoras relacionales resistentes a la eliminación selectiva y al truncamiento de cola en el motor de base de datos bajo normativas locales de privacidad \cite{alenezi2026,saricicek2026}.
+\end{enumerate}
+
+Para abordar estas brechas, se presenta el diseño formal, análisis de superficie de ataque e implementación arquitectónica de \textbf{Ch'asca}, una plataforma web ZTA para la gestión documental en una ONG de Lima Metropolitana que integra el DNIe 3.0 del RENIEC \cite{reniec2025} y firmas PAdES-LTV \cite{doynov2026,etsi2024}. Las contribuciones principales son:
+\begin{itemize}
+    \item \textbf{(i) Intermediación criptográfica local endurecida bajo ZTA:} Se diseña e implementa el agente residente \texttt{KILLAgent} (\texttt{wss://127.0.0.1:3000} + \texttt{PKCS\#11}) con validación estricta de \texttt{Origin} conforme a RFC 6454 \cite{rfc6454}, token de emparejamiento por sesión, captura aislada de PIN, monitoreo físico por \textit{heartbeat} PC/SC y defensa contra sustitución de hash.
+    \item \textbf{(ii) Orquestación y validación determinista PAdES-LTV en servidor:} Se formaliza un flujo de firma que transfiere únicamente un resumen SHA-256 de 32 bytes al chip, incrusta evidencias RFC 3161 y OCSP/CRL en el diccionario \texttt{/DSS} y ejecuta verificación cerrada ante fallos (\textit{fail-closed}) en servidor contra los vectores A1--A3 \cite{heher2027}.
+    \item \textbf{(iii) Persistencia híbrida inmutable con anclaje externo periódico:} Se combina almacenamiento MinIO S3 bajo políticas WORM (Escritura Única, Lectura Múltiple) con una bitácora MySQL \textit{append-only} sellada por fila mediante HMAC-SHA256 e incrementos anclados periódicamente en WORM cada $N$ eventos, logrando inserción y verificación por fila en $\mathcal{O}(1)$ y auditoría integral de cadena en $\mathcal{O}(n)$ resistente a truncamiento de cola.
+    \item \textbf{(iv) Modelo explícito de adversario y protocolo experimental reproducible:} Se delimitan formalmente los adversarios dentro y fuera de alcance, y se especifica un protocolo de validación empírica de estudio de caso único ($N_{\text{doc}}=300$ documentos y $M=900$ ensayos con consideraciones éticas bajo la Ley N.º 29733), dejando clara su ejecución como etapa experimental inmediata.
+\end{itemize}
+
+El artículo se organiza así: la Sección~\ref{sec:background} presenta los antecedentes técnicos y normativos; la Sección~\ref{sec:contribution} formula el problema, el modelo de adversario y la arquitectura propuesta; la Sección~\ref{sec:related} contrasta el estado del arte; la Sección~\ref{sec:design} detalla el diseño C4, la seguridad de \texttt{KILLAgent}, los algoritmos y el despliegue; la Sección~\ref{sec:experiments} define el protocolo experimental, aspectos PKI y éticos, y las amenazas a la validez; y la Sección~\ref{sec:conclusions} sintetiza las conclusiones y el trabajo futuro.
+
+% --- SECCIÓN 2: CONTEXTO, ANTECEDENTES Y VISIÓN GENERAL ---
+\section{Contexto, Antecedentes y Visión General}\label{sec:background}
+
+\subsection{Arquitectura Zero Trust y Control Contextual Híbrido}
+El estándar NIST SP 800-207 divide una infraestructura ZTA en el Plano de Control y el Plano de Datos \cite{rose2020,nam2026}. Cada transacción sobre un recurso es interceptada por un PEP (Punto de Aplicación de Políticas), que bloquea la sesión hasta que el PDP (Punto de Decisión de Políticas) ---integrado por el Motor de Políticas (PE) y el Administrador de Políticas (PA) bajo reglas del PAP--- autorice el acceso según el contexto vigente \cite{soni2026,nam2026}. Para superar las limitaciones de RBAC estático en flujos multidepartamentales, el estándar NIST SP 800-162 combina RBAC con ABAC (Control de Acceso Basado en Atributos) \cite{hu2014,swapna2026}, evaluando atributos del sujeto, del expediente (confidencialidad y estado) y del entorno (dirección IP, validez mTLS y presencia física del hardware) bajo privilegio mínimo \cite{soni2026,sethi2026,alenezi2026}.
+
+\subsection{Infraestructura del DNIe 3.0 y Marco Normativo}
+En el Perú, la Ley N.º 27269 (Ley de Firmas y Certificados Digitales) establece la equivalencia funcional entre la firma manuscrita y la firma digital generada dentro de la IOFE (Infraestructura Oficial de Firma Electrónica) \cite{ley27269,reniec2025}. Asimismo, el tratamiento de expedientes con datos personales se rige por la Ley N.º 29733 y el ejercicio de los derechos ARCO (Acceso, Rectificación, Cancelación y Oposición) \cite{ley29733}, mientras que la organización archivística adopta la norma ISO 15489-1 \cite{iso15489}.
+
+Físicamente, el DNIe 3.0 cumple la norma ISO/IEC 7816 y opera mediante lectores USB PC/SC (Computadora Personal/Tarjeta Inteligente) \cite{reniec2025,liu2026}. El chip actúa como QSCD (Dispositivo Cualificado de Creación de Firmas): custodia internamente las claves privadas asimétricas y exige autorización por PIN mediante la interfaz PKCS\#11 \cite{reniec2025,doynov2026}. Al estar bloqueado el acceso directo a PC/SC desde navegadores web por aislamiento de seguridad, se precisa un puente residente local controlado \cite{liu2026,satybaldy2022}.
+
+\subsection{Estándar PAdES-LTV, Engaño Visual y Persistencia Dual}
+La norma ISO 32000-2 permite actualizaciones incrementales en PDF sin invalidar firmas previas \cite{iso32000,heher2027}, sobre la cual ETSI EN 319 142-1 define PAdES incrustando un objeto CMS (\textit{Cryptographic Message Syntax}, RFC 5652) en el campo \texttt{/Contents} calculado sobre \texttt{/ByteRange} \cite{etsi2024,rfc5652,doynov2026}. Para preservar el valor probatorio tras la expiración del certificado, PAdES-LTV incorpora en el diccionario \texttt{/DSS} sellos de tiempo RFC 3161 \cite{rfc3161} y evidencias OCSP/CRL de no revocación.
+
+No obstante, como muestra la Fig.~\ref{fig:pades_ltv_structure}, ISO 32000-2 excluye la apariencia gráfica (\texttt{/AP}) de la validación criptográfica \cite{iso32000,heher2027}. En los ataques \textit{Genuine PDF Forgeries} (A1--A3), el atacante combina una firma válida con un bloque visual suplantado, engañando al 69.2\% (9/13) de los visores automáticos auditados en laboratorio \cite{heher2027,kim2025}. Por ello, la verificación de identidad debe imponerse en servidor bajo lógica \textit{fail-closed} \cite{doynov2026,heher2027}. Adicionalmente, para mitigar la manipulación de registros por administradores internos sin latencias de blockchain \cite{han2025}, la persistencia híbrida separa los binarios PDF/A bajo bloqueo de objetos S3 WORM cifrados con AES-256 de una bitácora relacional \textit{append-only} protegida criptográficamente con HMAC-SHA256 y anclaje externo periódico \cite{soni2026,doynov2026}.
+
+% --- FIGURA 1 (ANCHO COMPLETO DE DOS COLUMNAS, SIN RECORTES NI SOLAPES) ---
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\scriptsize,
+    box/.style={draw=blue!45!black, fill=white, rounded corners=2pt, align=center, inner sep=4pt, minimum height=0.85cm},
+    rbox/.style={draw=red!55!black, fill=white, rounded corners=2pt, align=center, inner sep=4pt, minimum height=0.85cm},
+    gbox/.style={draw=teal!60!black, fill=teal!8, rounded corners=2pt, align=center, inner sep=4pt, minimum height=0.85cm},
+    arr/.style={-{Stealth[length=4pt]}, line width=0.65pt, draw=black!70}
+]
+% Panel (a): izquierda
+\draw[draw=blue!55!black, fill=blue!3, rounded corners=3pt] (-8.45,-2.55) rectangle (-0.25,2.25);
+\node[anchor=north, font=\scriptsize\bfseries, text=blue!55!black] at (-4.35,2.15) {(a) Estructura PDF/A con PAdES-LTV};
+
+\node[box, fill=blue!9, text width=7.3cm] (br) at (-4.35,1.25)
+    {\textbf{Flujo binario cubierto por \texttt{/ByteRange}}\\
+     {\tiny \texttt{[0..offset1, offset2..EOF]} (ISO 32000-2)}};
+
+\node[box, text width=3.45cm] (cms) at (-6.25,0.0)
+    {\textbf{\texttt{/Contents} (CMS RFC 5652)}\\
+     {\tiny Firma RSA-2048 + Token TSA}};
+
+\node[box, text width=3.45cm] (dss) at (-2.45,0.0)
+    {\textbf{Diccionario \texttt{/DSS}}\\
+     {\tiny Respuestas OCSP + Listas CRL}};
+
+\node[gbox, text width=7.3cm] (x509) at (-4.35,-1.55)
+    {\textbf{Identidad Criptográfica Real en Certificado X.509}\\
+     {\tiny \texttt{serialNumber = DNI\_Titular} validado contra RENIEC PKI}};
+
+\draw[arr] (br.south -| cms) -- (cms.north);
+\draw[arr] (br.south -| dss) -- (dss.north);
+\draw[arr] (cms.south) -- (cms.south |- x509.north);
+\draw[arr] (dss.south) -- (dss.south |- x509.north);
+
+% Panel (b): derecha
+\draw[draw=red!60!black, fill=red!3, rounded corners=3pt] (0.25,-2.55) rectangle (8.45,2.25);
+\node[anchor=north, font=\scriptsize\bfseries, text=red!60!black] at (4.35,2.15) {(b) Brecha Visual (\textit{Genuine PDF Forgeries})};
+
+\node[rbox, fill=orange!10, text width=7.3cm] (ap) at (4.35,1.25)
+    {\textbf{Lienzo Visual PDF (\texttt{/AP} Apariencia no autenticada)}\\
+     {\tiny Texto superpuesto: ``\textit{Firmado por: Director General}''}};
+
+\node[rbox, fill=red!9, text width=7.3cm] (vec) at (4.35,0.0)
+    {\textbf{Vectores A1 (vinculado), A2 (anotación) y A3 (sin firma)}\\
+     {\tiny 71.9\% de engaño en visores cliente convencionales \cite{heher2027}}};
+
+\node[gbox, text width=7.3cm] (def) at (4.35,-1.55)
+    {\textbf{Defensa Ch'asca (\textit{Fail-Closed} en Servidor)}\\
+     {\tiny Verificación determinista: $ID(Cert_{d^*}) \equiv ID(u)$ antes de persistir}};
+
+\draw[arr] (ap.south) -- (vec.north);
+\draw[arr, draw=teal!60!black] (vec.south) -- (def.north);
+\end{tikzpicture}%
+}
+\caption{Estructura interna de un documento PDF/A firmado bajo el estándar PAdES-LTV y mitigación de la brecha de percepción visual: (a) cobertura criptográfica de \texttt{/ByteRange}, objeto CMS \texttt{SignedData} en \texttt{/Contents} y evidencias de longevidad en \texttt{/DSS}; (b) desconexión entre la apariencia visual no autenticada (\texttt{/AP}) explotada en \textit{Genuine PDF Forgeries} y la verificación determinista de identidad en el servidor \cite{doynov2026,heher2027}.}
+\label{fig:pades_ltv_structure}
+\end{figure*}
+
+% --- SECCIÓN 3: CONTRIBUCIÓN PRINCIPAL ---
+\section{Contribución Principal}\label{sec:contribution}
+
+\subsection{Formulación del Problema y Modelo de Adversario}
+En una ONG de Lima Metropolitana, cada expediente digital en formato PDF/A transita secuencialmente por la máquina de estados $\mathcal{S} = \{$\textit{Borrador}, \textit{En Revisión}, \textit{Pendiente de Firma}, \textit{Firmado}, \textit{Archivado}$\}$, interviniendo cinco roles organizacionales (Alta Dirección, Coordinadores de Proyectos, Personal Financiero, Asistentes Administrativos y Personal de TI) bajo supervisión de entidades cooperantes y fiscalizadoras. Sea $\mathcal{U}$ el conjunto de usuarios, $\mathcal{D}$ el de documentos y $\mathcal{A}$ el de acciones. Una solicitud en el instante $t$ se define como $req_t = \langle u, d, a, C_{env} \rangle$, donde $u \in \mathcal{U}$, $d \in \mathcal{D}$, $a \in \mathcal{A}$ y $C_{env}$ reúne atributos de ejecución (IP de origen, unidad orgánica, vigencia de la sesión de hardware y presencia física del chip DNIe 3.0). Se busca diseñar una función determinista $\Phi(req_t) \rightarrow \{1, 0\}$ que satisfaga cuatro invariantes acotadas a un modelo explícito de adversario.
+
+\paragraph{Modelo de Adversario.} Se consideran tres perfiles de atacante con capacidades acotadas y se delimitan explícitamente los supuestos fuera de alcance:
+\begin{itemize}
+    \item \textbf{Adversario DBA ($\mathcal{A}_{\text{DBA}}$):} Posee credenciales de superusuario sobre el motor MySQL para ejecutar consultas arbitrarias (\texttt{UPDATE}, \texttt{DELETE}, truncamiento de las últimas $k$ filas o sustitución integral de la tabla de auditoría), pero \emph{no tiene acceso} al servidor de aplicación (donde reside la clave $K_{\text{audit}}$) ni a los volúmenes o API administrativa del almacenamiento de objetos MinIO WORM.
+    \item \textbf{Adversario Web / Red ($\mathcal{A}_{\text{web}}$):} Opera páginas web maliciosas abiertas en el navegador del usuario intentando secuestro de WebSocket entre sitios (CSWSH) contra \texttt{127.0.0.1:3000}, o inyecta archivos PDF manipulados con apariencia visual falsificada (vectores A1--A3).
+    \item \textbf{Adversario Local No Privilegiado ($\mathcal{A}_{\text{loc}}$):} Ejecuta procesos en espacio de usuario que intentan conectarse directamente al puerto loopback falsificando la cabecera \texttt{Origin} o someter resúmenes arbitrarios de 32 bytes para inducir firma ciega (\textit{hash substitution}).
+    \item \textbf{Fuera de alcance:} Quedan explícitamente excluidos del alcance de mitigación de este modelo el administrador \textit{root} o hipervisor del VPS con control físico o de bloque sobre disco y memoria RAM (quien podría borrar volúmenes fuera de la API S3 o extraer $K_{\text{audit}}$ en ejecución), así como \textit{malware} con privilegios administrativos de núcleo (\textit{kernel}) en la estación cliente Windows.
+\end{itemize}
+
+Bajo dicho modelo, $\Phi(req_t)$ impone simultáneamente cuatro invariantes de seguridad:
+\begin{enumerate}
+    \item \textbf{Invariante de Vinculación Física ($I_1$):} Ninguna acción crítica $a \in \{\text{\textit{Firmar}}, \text{\textit{Aprobar}}, \text{\textit{Visualizar}}\}$ procede si el usuario no mantiene una sesión activa respaldada por chip QSCD (DNIe 3.0) con pulso de presencia $\tau_{hb}(u,t) = 1$, token de emparejamiento válido y estado certificado $\psi_{\text{OCSP/CRL}}(Cert_u,t) = \text{\texttt{GOOD}}$ \cite{liu2026,reniec2025}.
+    \item \textbf{Invariante de Privilegio Mínimo ($I_2$):} El acceso se otorga si y solo si $P_{\text{RBAC}}(u, a) \wedge P_{\text{ABAC}}(u, d, C_{env}) = 1$, con denegación implícita (\textit{Deny All}) ante desviaciones contextuales \cite{soni2026,hu2014}.
+    \item \textbf{Invariante de Autenticidad en Servidor ($I_3$):} Todo documento firmado $d^*$ debe portar un bloque CMS \texttt{SignedData} PAdES-LTV con estampa RFC 3161 y diccionario \texttt{/DSS} verificados de forma cerrada ante fallos en servidor, verificando $ID(Cert_{d^*}) \equiv ID(u)$ para rechazar los vectores A1--A3 \cite{doynov2026,heher2027}.
+    \item \textbf{Invariante de Inmutabilidad Anclada Anti-DBA ($I_4$):} Una vez depositado el objeto binario $d^*$ bajo bloqueo S3 WORM en modo \texttt{COMPLIANCE} y anexado el evento $e_k$ en la bitácora relacional \textit{append-only}, toda modificación de fila, borrado intermedio, truncamiento de cola o sustitución completa ejecutada por $\mathcal{A}_{\text{DBA}}$ es rechazada por la API de objetos o detectada determinísticamente mediante la verificación de la cadena HMAC-SHA256 contrastada contra un ancla externa inmutable publicada en el almacenamiento WORM cada $N$ eventos \cite{soni2026,han2025}.
+\end{enumerate}
+
+\subsection{Metodología DSR y Arquitectura Propuesta}
+Para conducir la investigación con rigor replicable, se adopta exclusivamente la metodología DSR (Investigación en Ciencia del Diseño, por sus siglas en inglés) de Hevner et al. \cite{hevner2004} y Peffers et al. \cite{peffers2007}: (1) identificación del problema y motivación; (2) definición de objetivos mediante las invariantes $I_1$--$I_4$; (3) diseño y desarrollo del artefacto \textbf{Ch'asca}; (4) demostración operativa del prototipo; (5) formulación del protocolo experimental controlado; y (6) comunicación científica de hallazgos y límites.
+
+% --- FIGURA 2 (ARQUITECTURA GENERAL DE 4 ZONAS) ---
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\scriptsize,
+    zone/.style={draw=black!45, dashed, rounded corners=3pt, fill=gray!4, inner sep=4pt},
+    comp/.style={draw=blue!45!black, fill=white, rounded corners=2pt, align=center, inner sep=3.5pt},
+    arr/.style={<->, >={Stealth[length=4pt]}, line width=0.65pt, draw=black!75},
+    sarr/.style={-{Stealth[length=4pt]}, line width=0.65pt, draw=black!75}
+]
+% Zona 1: Estación Windows
+\draw[zone] (-8.75,-2.70) rectangle (-4.85,2.65);
+\node[anchor=north, font=\scriptsize\bfseries] at (-6.80,2.55) {1. Estación Windows};
+
+\node[comp, text width=3.25cm] (spa) at (-6.80,1.72)
+    {\textbf{SPA WebApp}\\ {\tiny React 18 + Visor DLP}};
+\node[comp, fill=cyan!7, text width=3.35cm] (kill) at (-6.80,0.00)
+    {\textbf{Agente Local (\texttt{KILLAgent})}\\ {\tiny Java 21 · \texttt{wss://127.0.0.1:3000}}\\ {\tiny \texttt{Origin} + Token + WYSIWYS}};
+\node[comp, text width=3.25cm] (dnie) at (-6.80,-1.80)
+    {\textbf{Chip DNIe 3.0}\\ {\tiny Lector USB PC/SC + PKCS\#11}};
+
+\draw[arr] (spa.south) -- node[right=2pt, font=\tiny, align=left, fill=gray!4, inner sep=1pt] {WSS/32\,B + Token} (kill.north);
+\draw[arr] (kill.south) -- node[right=2pt, font=\tiny, align=left, fill=gray!4, inner sep=1pt] {PKCS\#11 + PIN} (dnie.north);
+
+% Zona 2: Borde ZTNA
+\draw[zone] (-4.20,-2.70) rectangle (-1.35,2.65);
+\node[anchor=north, font=\scriptsize\bfseries] at (-2.775,2.55) {2. Borde ZTNA};
+
+\node[comp, fill=orange!8, text width=2.30cm, minimum height=3.6cm] (cf) at (-2.775,-0.10)
+    {\textbf{Perímetro}\\ \textbf{Cloudflare}\\[3pt]
+     {\tiny Workers Static Assets\\ WAF + DDoS L7\\ Access ZTNA\\ Túnel saliente\\ \texttt{cloudflared}\\ SSL/TLS Full\\ 0 puertos TCP\\ públicos abiertos}};
+
+% Zona 3: Monolito Modular
+\draw[zone] (-0.65,-2.70) rectangle (4.05,2.65);
+\node[anchor=north, font=\scriptsize\bfseries] at (1.70,2.55) {3. Monolito Modular (Spring Boot 3.3)};
+
+\node[comp, fill=violet!6, text width=4.15cm] (iam) at (1.70,1.72)
+    {\textbf{IAM BC} {\tiny (PEP/PDP: RBAC + ABAC)}};
+\node[comp, fill=violet!6, text width=4.15cm] (usr) at (1.70,0.88)
+    {\textbf{Users BC} {\tiny (Áreas + Derechos ARCO)}};
+\node[comp, fill=violet!6, text width=4.15cm] (doc) at (1.70,0.04)
+    {\textbf{Document Mgmt BC} {\tiny (ISO 15489-1)}};
+\node[comp, fill=violet!6, text width=4.15cm] (aud) at (1.70,-0.80)
+    {\textbf{Audit Trail BC} {\tiny (HMAC + Ancla WORM)}};
+\node[comp, fill=violet!6, text width=4.20cm] (sig) at (1.70,-1.64)
+    {\textbf{Signature Engine BC} {\tiny (\mbox{PAdES-LTV})}};
+
+% Zona 4: Persistencia e Infra PKI
+\draw[zone] (4.85,-2.70) rectangle (8.95,2.65);
+\node[anchor=north, font=\scriptsize\bfseries] at (6.90,2.55) {4. Datos Inmutables y PKI};
+
+\node[comp, fill=green!8, text width=3.60cm] (minio) at (6.90,1.40)
+    {\textbf{MinIO S3 WORM}\\ {\tiny PDF/A (\texttt{COMPLIANCE} + AES-256)}\\ {\tiny Anclas \texttt{audit-anchors/} cada $N$}};
+\node[comp, fill=green!8, text width=3.60cm] (mysql) at (6.90,-0.10)
+    {\textbf{MySQL 8.0 InnoDB}\\ {\tiny Metadatos UUID + \textit{Append-Only}}};
+\node[comp, fill=yellow!10, text width=3.60cm] (pki) at (6.90,-1.60)
+    {\textbf{PKI Externa}\\ {\tiny RENIEC CRL/OCSP · TSA RFC 3161}};
+
+% Flechas entre zonas (en corredores limpios, sin cruces)
+\draw[sarr] (spa.east) -- node[above, font=\tiny] {HTTPS} (spa.east -| cf.west);
+\draw[sarr] (cf.east) -- node[above, font=\tiny] {Túnel TLS} (-0.65,-0.10);
+\draw[sarr] (doc.east) -- node[above, font=\tiny, pos=0.48, fill=white, inner sep=1pt] {S3} (minio.west);
+\draw[sarr] (aud.east) -- node[above, font=\tiny, pos=0.48, fill=white, inner sep=1pt] {HMAC} (mysql.west);
+\draw[sarr] (sig.east) -- node[below, font=\tiny, pos=0.48, fill=white, inner sep=1pt] {PKI} (pki.west);
+\end{tikzpicture}%
+}
+\caption{Arquitectura general y topología Zero Trust de \textbf{Ch'asca} estructurada en cuatro zonas de confianza: (1) estación cliente Windows con el agente local endurecido \texttt{KILLAgent} hacia el DNIe 3.0; (2) borde perimetral ZTNA con túnel saliente \texttt{cloudflared}; (3) núcleo backend monolítico modular en Spring Boot dividido en cinco contextos acotados (\textit{Bounded Contexts}); y (4) capa de persistencia híbrida dual con anclaje WORM e integración PKI externa.}
+\label{fig:chasca_architecture}
+\end{figure*}
+
+Como se esquematiza en la Fig.~\ref{fig:chasca_architecture}, la solución articula cuatro capas progresivas:
+\begin{enumerate}
+    \item \textbf{Capa de Intermediación Local (\texttt{KILLAgent}):} Servicio residente en Java 21 LTS comunicado por \texttt{wss://127.0.0.1:3000} que enlaza \texttt{SunPKCS11} con la lectora USB PC/SC. Captura el PIN de 6 dígitos en un diálogo nativo aislado, exhibe el documento y huella SHA-256 (WYSIWYS), exige token de emparejamiento por sesión y emite un pulso continuo (\textit{heartbeat}) que revoca la sesión al extraer la tarjeta ($I_1$).
+    \item \textbf{Capa Perimetral ZTNA y Visor DLP:} Todo tráfico web atraviesa un túnel saliente \texttt{cloudflared} bajo SSL/TLS Full, WAF/DDoS L7 y Cloudflare Access sin exponer puertos TCP públicos en el servidor. En el navegador, los documentos se visualizan en memoria con marcas de agua dinámicas (DNI, IP y estampa temporal) y bloqueo de descarga directa no autorizada.
+    \item \textbf{Capa de Núcleo Modular (Cinco Contextos Acotados):} El backend expone una API REST particionada en \textit{IAM BC} (PEP/PDP híbrido RBAC+ABAC), \textit{Users BC} (estructura orgánica y derechos ARCO bajo Ley N.º 29733), \textit{Document Management BC} (series ISO 15489-1, versionado inmutable y máquina de estados $\mathcal{S}$), \textit{Signature Engine BC} (orquestación de hash de 32 B, consultas de revocación, sellado RFC 3161 y verificación \textit{fail-closed} PAdES-LTV en servidor) y \textit{Audit Trail BC} (trazabilidad transversal y verificación de cadena).
+    \item \textbf{Capa de Persistencia Híbrida Inmutable Anclada:} Los PDF/A firmados se almacenan en MinIO S3 bajo retención WORM \texttt{COMPLIANCE} y cifrado AES-256. En paralelo, los eventos se insertan en MySQL 8.0 en modo \textit{append-only} sellados secuencialmente por fila:
+    \begin{equation}
+    \begin{aligned}
+        \texttt{rowSig}_k ={}& \operatorname{HMAC\text{-}SHA256}\big(K_{\text{audit}},\, ID_u \parallel a_k \\
+        &\parallel ts_k \parallel IP_k \parallel H(d^*) \parallel \texttt{rowSig}_{k-1}\big)
+    \end{aligned}
+    \label{eq:row_signature}
+    \end{equation}
+    donde $K_{\text{audit}}$ permanece fuera del motor MySQL y $H(d^*)$ es el resumen SHA-256 del documento \cite{soni2026}. Adicionalmente, para neutralizar el truncamiento de cola o la sustitución total de registros por parte de $\mathcal{A}_{\text{DBA}}$, cada $N$ eventos ($k \equiv 0 \pmod N$) el servidor publica en un objeto WORM dedicado un ancla externa inmutable:
+    \begin{equation}
+    \begin{aligned}
+        \texttt{anchor}_m = \big\langle &k,\, ts_k,\, \texttt{rowSig}_k,\\
+        &\operatorname{HMAC\text{-}SHA256}(K_{\text{audit}},\, k \parallel \texttt{rowSig}_k)\big\rangle
+    \end{aligned}
+    \label{eq:external_anchor}
+    \end{equation}
+\end{enumerate}
+
+\subsection{Justificación de Decisiones Arquitectónicas}
+Cada decisión de diseño responde a compromisos técnicos y presupuestarios propios del dominio de una ONG:
+\begin{itemize}
+    \item \textbf{Agente local WSS + PKCS\#11 frente a HSM en la nube o \textit{applets}:} Delegar la firma a un HSM comercial remoto introduce costos recurrentes por firma y dependencia de custodia externa \cite{swapna2026,doynov2026}, mientras que los \textit{applets} NPAPI están obsoletos. El agente residente sobre \texttt{127.0.0.1} confina la clave privada en el DNIe 3.0 ciudadano sin costo de licenciamiento HSM \cite{liu2026,reniec2025}.
+    \item \textbf{Monolito modular frente a microservicios distribuidos:} Aunque los microservicios permiten escalado independiente \cite{doynov2026}, incrementan el consumo de RAM, la latencia interna de red y la complejidad de operación en equipos TI reducidos. Cinco contextos acotados encapsulados en Spring Boot 3.3 preservan el aislamiento lógico del dominio en un único proceso desplegable.
+    \item \textbf{Persistencia dual WORM + HMAC anclado frente a blockchain:} Las propuestas sobre IPFS y Ethereum \cite{han2025,satybaldy2022} imponen esperas por confirmación de bloque ($\approx 12.2$--$12.7\text{ s}$) y tarifas variables de \textit{gas}. La persistencia dual WORM + MySQL anclado cada $N$ eventos logra inmutabilidad binaria ante la API de almacenamiento e inserción/verificación por fila en tiempo constante $\mathcal{O}(1)$ ---junto con auditoría completa de cadena en $\mathcal{O}(n)$ frente a $\mathcal{A}_{\text{DBA}}$--- sin costos transaccionales externos \cite{soni2026,doynov2026}.
+\end{itemize}
+
+% --- SECCIÓN 4: TRABAJOS RELACIONADOS ---
+\section{Trabajos Relacionados y Discusión}\label{sec:related}
+
+Se efectuó una revisión sistemática en \textit{Scopus}, \textit{Web of Science}, \textit{IEEE Xplore}, \textit{ScienceDirect}, \textit{SpringerLink} y \textit{MDPI} cubriendo el periodo 2022--2027 con los descriptores \textit{(``Zero Trust'' OR ``ZTNA'') AND (``document management'' OR ``digital signature'' OR ``PAdES'' OR ``smart card'' OR ``immutable audit'')}, junto con estándares fundacionales \cite{rose2020,hu2014,etsi2024,iso32000,iso27001}. El análisis se estructura en dos ejes técnicos alineados con $I_1$--$I_4$.
+
+\subsection{Arquitecturas Zero Trust y Políticas Cifradas}
+Las revisiones recientes muestran una amplia distancia entre el modelo NIST SP 800-207 \cite{rose2020} y su despliegue real. Nam et al. \cite{nam2026} evaluaron 53 revisiones y 50 estudios sobre cuantificación de confianza en ZTA, hallando que el 68\% se prueba solo en simuladores sintéticos y el monitoreo de bitácoras registra la madurez más baja (0.6/2.0). En paralelo, Swapna et al. \cite{swapna2026} analizaron 73 estudios sobre ZTNA ($\kappa = 0.87$), encontrando que el 63\% corresponde a marcos conceptuales, el 19\% a simulaciones o prototipos de laboratorio y apenas el 14\% a despliegues reales o estudios de caso, junto con costos comerciales de 60\,000 a 100\,000 USD anuales inaccesibles para ONG locales.
+
+En infraestructura, Sammartino y Schneider \cite{sammartino2026} modelaron tejidos Cisco SD-Access mediante gemelos digitales ($10^5$ simulaciones de Monte Carlo); aunque la microsegmentación redujo en 78.3\% el riesgo de compromiso de base de datos ($P_c$ de $0.180$ a $0.039$), no contiene credenciales comprometidas sobre rutas autorizadas. En el borde, Lu \cite{lu2027} integró atestación vTPM e IMA sobre KubeEdge aislando nodos en 3.19 s (91.33\% en 900 corridas), pero recuperó solo el 20\% tras particiones de red y demandó hasta 294.6 s en regenerar listas blancas. Desde la gobernanza, Alenezi \cite{alenezi2026} validó un modelo de madurez ZTA alineado a ISO/IEC 27001 \cite{iso27001} ($\alpha = 0.7644$), limitado a diagnóstico sin software ejecutable. Para proteger reglas ABAC \cite{hu2014}, Soni et al. \cite{soni2026} propusieron \texttt{MAPE-ZT} (cifrado de políticas XACML con HMAC-SHA256, AES-256-CTR y CP-ABE), logrando 96.3\%--96.7\% de exactitud en 5.40--5.76 ms en simulación Python, pero decayendo a 35.48 ops/s con $10^4$ reglas y sin proteger bitácoras frente a un DBA. Sethi y Dhal \cite{sethi2026} diseñaron \texttt{SMART-CPABE} con descifrado delegado (20--125 ms), empleando la curva heredada \texttt{SS512} ($\approx 80$ bits) sin firma PAdES ni hardware ciudadano. En contraste, \textbf{Ch'asca} materializa $I_2$ en un monolito modular que acopla RBAC + ABAC al estado físico del DNIe 3.0 ($I_1$) sin licenciamiento ZTNA comercial.
+
+\subsection{Identidad, Tarjetas Inteligentes, PAdES-LTV y Persistencia}
+En identidad autosoberana, Satybaldy et al. \cite{satybaldy2022} aplicaron DSR para verificación documental con DID sobre IPFS/Ethereum, con evaluación únicamente cualitativa, claves en software y sin perfil PAdES-LTV. Kim et al. \cite{kim2025} combinaron identificadores anónimos y firmas basadas en atributos (emisión en 0.344 ms y verificación en 1.824 ms), pero con escalado $\mathcal{O}(N)$ por atributos, custodia por software y anonimato incompatible con la rendición nominal ante organismos fiscalizadores. Para confinar claves en chip, Liu et al. \cite{liu2026} propusieron credenciales \texttt{cbAC} sobre la curva BLS12-381 (pruebas de 0.38 KB en 576 ms sobre microcontrolador STM32), aunque dichas curvas carecen de soporte nativo en tarjetas eID comerciales y PKCS\#11.
+
+En firma longeva ETSI EN 319 142-1 \cite{etsi2024}, Doynov et al. \cite{doynov2026} integraron firmas híbridas poscuánticas (\texttt{ML-DSA-65} + \texttt{ECDSA-P256}) en PAdES-BASELINE-LTA con RFC 3161 y OCSP/CRL (mediana reportada de 269.7 ms), desplegando 27 contenedores ($\approx 5.9$ GB RAM) y custodiando claves en servidor con \texttt{SoftHSM2}. De modo crítico, Heher et al. \cite{heher2027} evidenciaron con los vectores \textit{Genuine PDF Forgeries} (A1--A3) que el 69.2\% de lectores automáticos oculta el titular del certificado X.509 y engaña al 71.9\% de participantes ($n = 584$); su mitigación en el visor Linux \texttt{Zathura} bloquea el vector A1 pero falla ante A2 y A3. Por otro lado, Sari\c{c}i\c{c}ek y Dener \cite{saricicek2026} clasificaron sensibilidad documental mediante \texttt{SACHN-DeBERTa-v3-Large} (96.12\% de exactitud), requiriendo GPUs H200 (139.8 GB VRAM, $\approx 1.2 \times 10^9$ parámetros) sin control determinista. Finalmente, Han y Son \cite{han2025} articularon AES-256, secreto de Shamir, IPFS (148 ms para 1 MB) y Ethereum (12\,224--12\,774 ms de escritura más \textit{gas}), mientras que Elisa et al. \cite{elisa2023} combinaron blockchain de consorcio e inmunidad artificial (96.52\% en simulación, con detección probabilística \textit{post-hoc} que decae sobre 50 validadores). La Tabla~\ref{tab:related_comparison} sintetiza estas limitaciones frente al diseño integral de \textbf{Ch'asca}.
+
+% --- TABLA 1 (ANCHO COMPLETO table*, SIN MÉTRICAS NO EJECUTADAS) ---
+\begin{table*}[t]
+\caption{Comparación multidimensional entre trabajos primarios del estado del arte (2022--2027) y el diseño de \textbf{Ch'asca}. Notación: $\checkmark$ = cumple íntegramente; $\sim$ = cumple parcialmente, en simulación o sin hardware ciudadano; -- = no aborda.}
+\label{tab:related_comparison}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{2.95cm}>{\centering\arraybackslash}p{1.05cm}>{\centering\arraybackslash}p{1.05cm}>{\centering\arraybackslash}p{1.15cm}>{\centering\arraybackslash}p{1.05cm}>{\centering\arraybackslash}p{1.00cm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Trabajo (Año)} &
+\shortstack{\textbf{ZTA/}\\\textbf{ABAC}\\($I_2$)} &
+\shortstack{\textbf{HW}\\\textbf{QSCD}\\($I_1$)} &
+\shortstack{\textbf{PAdES-}\\\textbf{LTV}\\($I_3$)} &
+\shortstack{\textbf{Val.}\\\textbf{Serv.}\\($I_3$)} &
+\shortstack{\textbf{Anti-}\\\textbf{DBA}\\($I_4$)} &
+\textbf{Hallazgo Reportado y Limitación Principal} \\
+\midrule
+Satybaldy et al. \cite{satybaldy2022} (2022) & -- & -- & -- & -- & $\sim$ & Prototipo cualitativo SSI/IPFS sin latencias; claves en software y sin PAdES-LTV. \\
+Elisa et al. \cite{elisa2023} (2023) & -- & -- & -- & -- & $\sim$ & 96.52\% exactitud anti-\textit{insider} en simulación; decae $>$50 nodos, detección \textit{post-hoc}. \\
+Han y Son \cite{han2025} (2025) & -- & -- & -- & -- & $\checkmark$ & 148 ms carga IPFS (1 MB), pero 12.22--12.77 s en Ethereum, \textit{gas} y sin ABAC/PAdES. \\
+Kim et al. \cite{kim2025} (2025) & $\sim$ & -- & -- & -- & -- & Emisión 0.344 ms / verif. 1.824 ms; $\mathcal{O}(N)$ por atributos, claves en software, anónimo. \\
+Sammartino y Schneider \cite{sammartino2026} (2026) & $\sim$ & -- & -- & -- & -- & $-78.3\%$ riesgo DB en gemelo ($10^5$ corridas); sin contención intra-segmento ($P_c=0.180$). \\
+Alenezi \cite{alenezi2026} (2026) & $\sim$ & -- & -- & -- & -- & Acuerdo experto $\alpha = 0.7644$ ($n=15$); modelo diagnóstico sin artefacto software. \\
+Soni et al. \cite{soni2026} (2026) & $\checkmark$ & -- & -- & -- & -- & 96.3\%--96.7\% exactitud, 5.40--5.76 ms en Python; cae a 35.48 ops/s ($10^4$ reglas), sin WORM. \\
+Sethi y Dhal \cite{sethi2026} (2026) & $\sim$ & -- & -- & -- & -- & 20--125 ms en CP-ABE (2--12 atrib.); curva \texttt{SS512} ($\approx 80$ bits), 6 autoridades, sin PAdES. \\
+Liu et al. \cite{liu2026} (2026) & -- & $\sim$ & -- & -- & -- & Prueba $\mathcal{O}(1)$ (0.38 KB) en 576 ms (STM32); curva BLS12-381 incompatible con PKCS\#11. \\
+Doynov et al. \cite{doynov2026} (2026) & -- & $\sim$ & $\checkmark$ & $\sim$ & $\checkmark$ & Mediana 269.7 ms (7.34 cer./s); 27 contenedores ($\approx 5.9$ GB RAM) y custodia en \texttt{SoftHSM2}. \\
+Sari\c{c}i\c{c}ek y Dener \cite{saricicek2026} (2026) & -- & -- & -- & -- & -- & 96.12\% exactitud sensibilidad; exige $\approx 1.2 \times 10^9$ parámetros en GPU H200 (139.8 GB VRAM). \\
+Lu \cite{lu2027} (2027) & $\checkmark$ & $\sim$ & -- & -- & -- & Aislamiento en 3.19 s (91.33\% en 900 corridas); solo 20\% recupera tras partición de red. \\
+Heher et al. \cite{heher2027} (2027) & -- & -- & $\sim$ & $\sim$ & -- & Demuestra 71.9\% engaño visual ($n=584$); parche \texttt{Zathura} falla ante vectores A2 y A3. \\
+\midrule
+\textbf{Propuesta (Ch'asca)} & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & Diseño integral sobre DNIe 3.0 (PKCS\#11), \texttt{KILLAgent} endurecido, validación server-side PAdES-LTV y WORM + HMAC anclado (0 USD \textit{gas}; protocolo de evaluación pendiente). \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+% --- SECCIÓN 5: DISEÑO E IMPLEMENTACIÓN ---
+\section{Diseño e Implementación del Producto}\label{sec:design}
+
+\subsection{Vistas C4, Componentes y Modelo Híbrido de Datos}
+La arquitectura se diseña conforme al modelo C4 (\textit{Context, Containers, Components, Code}), Arquitectura Limpia y DDD (Diseño Guiado por el Dominio). La vista de Componentes (Nivel 3) y su vinculación con la persistencia híbrida se muestran en la Fig.~\ref{fig:c4_components}, evitando todo acoplamiento directo entre esquemas relacionales y estados internos mediante ACL (Capas Anticorrupción):
+
+% --- FIGURA 3 (DIAGRAMA C4 + PERSISTENCIA SIN SOLAPES) ---
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\scriptsize,
+    bc/.style={draw=blue!50!black, fill=blue!4, rounded corners=3pt, align=left, text width=4.15cm, inner sep=5pt},
+    db/.style={draw=teal!55!black, fill=teal!6, rounded corners=3pt, align=left, text width=5.45cm, inner sep=5pt},
+    arr/.style={-{Stealth[length=4pt]}, line width=0.65pt, draw=black!75}
+]
+% Contextos Acotados (izquierda)
+\node[bc] (iam) at (-6.25,1.40)
+    {\textbf{IAM BC} {\tiny (\textit{Acceso y Sesiones})}\\
+     {\tiny $\bullet$ \texttt{ZeroTrustSecurityFilter} (PEP)\\
+            $\bullet$ \texttt{DniAuthenticationService} + \texttt{OcspService}\\
+            $\bullet$ \texttt{AbacEvaluationEngine} (PDP)}};
+
+\node[bc] (sig) at (-1.40,1.40)
+    {\textbf{Signature Engine BC} {\tiny (\textit{Firma \mbox{PAdES}})}\\
+     {\tiny $\bullet$ \texttt{LocalAgentSocketHandler} (WSS)\\
+            $\bullet$ \texttt{SignatureOrchestrationService}\\
+            $\bullet$ \texttt{PadesLtvProcessor} + \texttt{TsaRestClient}}};
+
+\node[bc] (doc) at (-6.25,-0.75)
+    {\textbf{Document Mgmt BC} {\tiny (\textit{Archivo ISO 15489})}\\
+     {\tiny $\bullet$ \texttt{ArchivalClassificationService}\\
+            $\bullet$ \texttt{ExpedientManagementService} (Versiones)\\
+            $\bullet$ \texttt{DocumentLifecycleService} ($\mathcal{S}$)}};
+
+\node[bc] (aud) at (-1.40,-0.75)
+    {\textbf{Audit Trail BC} {\tiny (\textit{Auditoría Forense})}\\
+     {\tiny $\bullet$ \texttt{AuditEventHandler} (Transversal)\\
+            $\bullet$ \texttt{RowSignatureEngine} (HMAC-SHA256)\\
+            $\bullet$ \texttt{IntegrityVerificationService} (Ancla)}};
+
+\node[draw=blue!40!black, fill=gray!6, rounded corners=2pt, align=center, text width=9.0cm, inner sep=4pt] (usr) at (-3.825,-2.50)
+    {\textbf{Users BC} {\tiny (Jerarquía orgánica, roles organizacionales y gestión de solicitudes ARCO conforme a Ley N.º 29733)}};
+
+% Persistencia Híbrida (derecha, separada horizontal y verticalmente)
+\node[db] (mysql) at (5.80,1.25)
+    {\textbf{MySQL 8.0 InnoDB} {\tiny (Claves UUID v4 \texttt{BINARY(16)})}\\
+     {\tiny $\bullet$ Operativas (FK estrictas): \texttt{users}, \texttt{roles}, \texttt{archival\_series}, \texttt{documents} (\texttt{JSON}), \texttt{digital\_signatures} (\texttt{TIMESTAMP(6)})\\
+            $\bullet$ \texttt{audit\_logs}: \textbf{sin FK duras} (\textit{Append-Only}, revoca \texttt{UPDATE/DELETE})}};
+
+\node[db, fill=green!7] (minio) at (5.80,-1.45)
+    {\textbf{MinIO Server} {\tiny (API S3 + Retención WORM \texttt{COMPLIANCE})}\\
+     {\tiny $\bullet$ Objetos PDF/A cifrados con AES-256 + \texttt{s3\_version\_id}\\
+            $\bullet$ Prefijo inmutable \texttt{audit-anchors/} (ancla cada $N$ eventos)\\
+            $\bullet$ Bloqueo vía API ante bajas ARCO o borrado de $\mathcal{A}_{\text{DBA}}$}};
+
+% Flechas limpias entre componentes
+\draw[arr] (sig.west) -- (iam.east);
+\draw[arr] (doc.north) -- (iam.south);
+\draw[arr] (sig.south) -- (aud.north);
+\draw[arr] (doc.east) -- (aud.west);
+
+% Flechas hacia MySQL y MinIO en corredor amplio (x = 0.85 .. 2.90) sin cruzar cajas
+\draw[arr] (sig.east) -- node[above, font=\tiny, pos=0.50] {Metadatos} (mysql.west |- sig.east);
+\draw[arr] ([yshift=0.28cm]aud.east) -- node[above, font=\tiny, pos=0.45, sloped] {HMAC \texttt{rowSig}} ([yshift=-0.42cm]mysql.west);
+\draw[arr] ([yshift=-0.20cm]aud.east) -- node[above, font=\tiny, pos=0.50] {Ancla $N$} ([yshift=0.50cm]minio.west);
+\draw[arr] ([xshift=0.80cm]doc.south) -- ++(0,-0.32) -- node[below, font=\tiny, pos=0.84] {Binario PDF/A} ([yshift=-0.32cm]minio.west |- 0,-1.45);
+
+% Vínculo SHA-256 entre MySQL y MinIO
+\draw[<->, >={Stealth[length=4pt]}, dashed, line width=0.65pt, draw=teal!65!black]
+    (mysql.south) -- node[right, font=\tiny, align=left] {Enlace criptográfico\\ \texttt{file\_sha256} + \texttt{latestRowSig}} (minio.north);
+\end{tikzpicture}%
+}
+\caption{Vista de Componentes (Modelo C4 - Nivel 3) del núcleo \textbf{Ch'asca} y su correspondencia con el modelo híbrido de persistencia: interacción entre contextos acotados (\textit{IAM}, \textit{Users}, \textit{Document Management}, \textit{Signature Engine} y \textit{Audit Trail}), aislamiento referencial de \texttt{audit\_logs}, enlace \texttt{file\_sha256} y publicación periódica de anclas hacia MinIO S3 WORM.}
+\label{fig:c4_components}
+\end{figure*}
+
+El acoplamiento interno comprende tres mecanismos principales: (1) interceptación de toda petición HTTPS en \texttt{ZeroTrustSecurityFilter}, delegando la verificación X.509 y de revocación CRL/OCSP a \texttt{OcspService} (con tiempos límite de conexión de 3000 ms) antes de evaluar políticas en \texttt{AbacEvaluationEngine}; (2) estructuración archivística ISO 15489-1 en \textit{Document Management BC} utilizando tipos nativos \texttt{JSON} en MySQL con índices virtuales secundarios y punteros de versionado inmutable (\texttt{SUPERSEDES}) que evitan sobrescribir PDF firmados; y (3) claves primarias UUID v4 en \texttt{BINARY(16)}, estampas \texttt{TIMESTAMP(6)} y desacoplamiento referencial intencional de \texttt{audit\_logs} (sin claves foráneas hacia \texttt{users} o \texttt{documents}) para que el ejercicio de derechos ARCO no dispare eliminaciones en cascada ni rompa la cadena histórica.
+
+La Tabla~\ref{tab:tech_stack} resume la pila tecnológica implementada junto con la invariante asociada y las compensaciones (\textit{trade-offs}) de ingeniería sin métricas especulativas.
+
+% --- TABLA 2 (PILA TECNOLÓGICA SIN PUNTAJES OPACOS NI CÓDIGOS INTERNOS) ---
+\begin{table*}[t]
+\caption{Especificación de la pila tecnológica de \textbf{Ch'asca}, invariante de seguridad asociada y compensaciones (\textit{trade-offs}) de diseño arquitectónico.}
+\label{tab:tech_stack}
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.0cm}>{\raggedright\arraybackslash}p{3.4cm}c>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Capa / Subsistema} & \textbf{Tecnología y Versión} & \textbf{Inv.} & \textbf{Rol Arquitectónico y \textit{Trade-off} de Ingeniería} \\
+\midrule
+Agente Criptográfico Cliente & Java 21 LTS (\texttt{jlink}) + \texttt{SunPKCS11} + WSS & $I_1$ & Acceso nativo PC/SC al DNIe 3.0 sin \textit{bindings} C++ externos; requiere instalación única del ejecutable ($\approx 45$ MB) en estaciones Windows 10/11 Pro. \\
+Interfaz Web y Visor DLP & React 18.3 + Vite 5.4 + TypeScript 5.5 & $I_2, I_3$ & Renderizado en memoria con marcas de agua dinámicas (DNI, IP, hora) y control de descarga; mayor consumo de RAM en navegador frente a visores locales. \\
+Perímetro Zero Trust & Cloudflare Workers + Access (ZTNA) + \texttt{cloudflared} & $I_1, I_2$ & Cierre de puertos TCP públicos mediante túnel saliente (\texttt{cloudflared}) y WAF/DDoS L7; añade una etapa adicional de enrutamiento perimetral antes del backend. \\
+Núcleo Backend Modular & Spring Boot 3.3 + Spring Security 6 + Java 21 & $I_1$--$I_4$ & Hilos virtuales y aislamiento lógico en 5 \textit{Bounded Contexts} dentro de un único proceso; reduce sobrecarga operativa frente a microservicios a cambio de escalado conjunto. \\
+Motor PAdES-LTV y PKI & Apache PDFBox 3.0 + BouncyCastle 1.78 & $I_3$ & Construcción determinista de \texttt{/Contents} y \texttt{/DSS} más verificación de identidad en servidor; sujeto a latencia de red hacia TSA RFC 3161 y reflectores PKI externos. \\
+Persistencia Relacional & MySQL 8.0 (\texttt{InnoDB}) + Spring Data JPA & $I_2, I_4$ & Transaccionalidad ACID, índices sobre \texttt{JSON} (ISO 15489-1) e inserciones \textit{append-only} selladas en $\mathcal{O}(1)$ por fila (auditoría integral de cadena en $\mathcal{O}(n)$). \\
+Almacenamiento WORM & MinIO Server (S3 API) + Object Lock + AES-256 & $I_4$ & Retención de objetos PDF/A y anclas de auditoría en modo \texttt{COMPLIANCE} sin costos de \textit{gas}; impide eliminación vía API S3 por $\mathcal{A}_{\text{DBA}}$ (acceso \textit{root} al disco VPS fuera de alcance). \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Seguridad del Agente Local (\texttt{KILLAgent})}\label{sec:killagent_security}
+Dado que \texttt{KILLAgent} puentea el navegador hacia un puerto de bucle invertido (\texttt{wss://127.0.0.1:3000}) con acceso directo al chip QSCD del ciudadano, constituye una superficie crítica frente a los adversarios $\mathcal{A}_{\text{web}}$ y $\mathcal{A}_{\text{loc}}$. Su diseño incorpora cinco mecanismos de defensa explícitos y delimita sus fronteras:
+\begin{enumerate}
+    \item \textbf{Validación estricta de \texttt{Origin} (defensa anti-CSWSH):} Para impedir que sitios maliciosos abiertos en otras pestañas del navegador abran sesiones WebSocket hacia \texttt{127.0.0.1:3000}, el agente inspecciona la cabecera HTTP \texttt{Origin} en doble etapa ---durante el \textit{handshake} de actualización HTTP y nuevamente en la apertura del canal (\texttt{onOpen})--- aplicando canonicalización estricta bajo RFC 6454 \cite{rfc6454} (\textit{esquema}, \textit{host} y \textit{puerto}). Se rechazan de forma determinista cabeceras vacías, orígenes \texttt{\textquotedbl null\textquotedbl} (provenientes de \textit{iframes} aislados o esquema \texttt{file://}) y ataques de suplantación por prefijo.
+    \item \textbf{Token de emparejamiento por sesión (\textit{Session Pairing Token}):} Debido a que un proceso local no-navegador ($\mathcal{A}_{\text{loc}}$) puede falsificar la cabecera \texttt{Origin} al abrir un \textit{socket} TCP, la arquitectura incorpora un secreto efímero de emparejamiento vinculado a la sesión web autenticada. Toda solicitud operativa hacia \texttt{KILLAgent} debe presentar este token de sesión en un esquema de autorización efímera, bloqueando invocaciones no autorizadas desde procesos locales ajenos al flujo del navegador autenticado.
+    \item \textbf{Certificado TLS de bucle invertido sin CA raíz local:} El transporte cifrado WSS se aprovisiona mediante un certificado X.509 RSA-2048 autofirmado de entidad final (\textit{BasicConstraints} $= \text{false}$, vigencia $\le 825$ días) emitido exclusivamente para los nombres alternativos \texttt{IP:127.0.0.1} y \texttt{DNS:localhost} en un almacén PKCS\#12 local. De manera deliberada se evita instalar una autoridad certificadora (CA) raíz local en el almacén de confianza del sistema operativo, eliminando el riesgo sistémico de permitir la emisión fraudulenta de certificados para dominios de terceros.
+    \item \textbf{Aislamiento del diálogo de PIN contra \textit{keyloggers} y captura de pantalla:} El diálogo nativo en Java Swing implementa una arquitectura libre de cadenas inmutables (\textit{Zero-String}), confinando los dígitos únicamente en un arreglo \texttt{char[]} preasignado que se sobrescribe con ceros (\texttt{\textbackslash0}) al confirmar, cancelar, expirar (30 s) o extraer físicamente la tarjeta. Incluye un teclado numérico virtual aleatorizado mediante \texttt{SecureRandom} en cada apertura (con opción de bloqueo total de teclado físico), invoca vía JNA la API nativa de Windows \texttt{SetWindowDisplayAffinity} (\texttt{WDA\_EXCLUDEFROMCAPTURE}) para excluir la ventana de capturas de pantalla, y enlaza un \textit{Kill-Switch} PC/SC que aborta la captura si el chip es retirado.
+    \item \textbf{Mitigación de sustitución de hash (\textit{Hash Substitution}) y límites:} Dado que el servidor calcula el resumen SHA-256 del rango \texttt{/ByteRange} y transmite 32 bytes al agente, un chip firmaría cualquier resumen válido si el usuario ingresara su PIN tras ser engañado. Para mitigar este vector, el diseño combina: (a) exhibición WYSIWYS (\textit{What You See Is What You Sign}) en la ventana nativa mostrando título del documento, rol y huella SHA-256 truncada sanitizados contra inyección HTML; y (b) vinculación mediante un paquete de intención de firma autenticado por el backend (\texttt{signingIntent}: identificador de \textit{slot}, hash esperado, DNI del titular, \textit{nonce} y expiración corta de un solo uso) junto con verificación cruzada posterior en servidor (líneas 11--12 del Algoritmo~\ref{alg:pades_ltv}). No obstante, se reconoce explícitamente que si \textit{malware} con privilegios administrativos o de núcleo compromete la misma sesión de usuario o la memoria del sistema operativo ($\mathcal{A}$ fuera de alcance), ningún agente en espacio de usuario puede garantizar la integridad del contexto previo al chip.
+\end{enumerate}
+
+\subsection{Algoritmos de Firma PAdES-LTV y Sellado Anclado}\label{sec:algorithms}
+Para asegurar la reproducibilidad técnica sin dependencias propietarias, los Algoritmos~\ref{alg:pades_ltv} y~\ref{alg:audit_hmac} formalizan las rutinas de suscripción documental y trazabilidad inmutable.
+
+% --- ALGORITMO 1 (ANCHO COMPLETO figure* PARA 2 COLUMNAS SIN ROMPER NUMERACIÓN DE TABLAS) ---
+\begin{figure*}[t]
+\phantomsection\refstepcounter{algoritmo}\label{alg:pades_ltv}
+\noindent\rule{\textwidth}{1pt}\par\vspace{2pt}
+\noindent\textbf{Algoritmo \thealgoritmo.} Orquestación de Firma y Validación Determinista PAdES-LTV en Servidor con Verificación de Presencia Física DNIe 3.0 ($I_1, I_2, I_3$).\par\vspace{2pt}
+\noindent\rule{\textwidth}{0.5pt}\par\vspace{2pt}
+{\scriptsize
+\noindent\textbf{Entrada:} Solicitud $req_t = \langle u, d, a=\text{\textit{Firmar}}, C_{env} \rangle$, certificado cliente $Cert_u$, token de emparejamiento $tok_{\text{ses}}$, PIN de 6 dígitos.\newline
+\textbf{Salida:} Documento firmado $d^*$ en perfil PAdES-LTV persistido en WORM o excepción $\bot$ (\textit{Fail-Closed}).\par\vspace{2pt}
+\noindent\rule{\textwidth}{0.4pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}r>{\raggedright\arraybackslash}X@{}}
+1: & \textbf{si} $\tau_{hb}(u,t) \neq 1 \lor \neg\big(P_{\text{RBAC}}(u, \text{\textit{Firmar}}) \wedge P_{\text{ABAC}}(u, d, C_{env})\big)$ \textbf{entonces retornar} $\bot$ \hfill $\triangleright$ Verifica $I_1$ e $I_2$ \\
+2: & $\psi_{\text{PKI}} \leftarrow \text{\texttt{OcspService.checkRevocation}}(Cert_u, \text{RENIEC\_PKI}, \text{timeout}=3000\,\text{ms})$ \\
+3: & \textbf{si} $\psi_{\text{PKI}} \neq \text{\texttt{GOOD}}$ \textbf{entonces retornar} $\bot$ \hfill $\triangleright$ Política \textit{fail-closed} ante revocación o expiración \\
+4: & $pdf_{prep} \leftarrow \text{\texttt{PadesLtvProcessor.prepareSignatureDictionary}}(d, Cert_u, \text{\texttt{/ByteRange}})$ \\
+5: & $h_{doc} \leftarrow \text{SHA-256}\big(\text{\texttt{extractByteRangeStream}}(pdf_{prep})\big)$; \, $\text{\texttt{intent}} \leftarrow \text{\texttt{issueSignedIntent}}(u, h_{doc}, \text{metadata}(d), \text{nonce}, ttl)$ \\
+6: & $\sigma_{\text{chip}} \leftarrow \text{\texttt{KILLAgent.signViaPKCS11}}\big(\text{\texttt{wss://127.0.0.1:3000}}, \, tok_{\text{ses}}, \, \text{\texttt{intent}}, \, \text{PIN}\big)$ \hfill $\triangleright$ Valida \texttt{Origin} + WYSIWYS \\
+7: & \textbf{si} $\sigma_{\text{chip}} = \text{\texttt{NULL}} \lor \neg\text{\texttt{verifyAsymmetric}}\big(\sigma_{\text{chip}}, h_{doc}, PublicKey(Cert_u)\big)$ \textbf{entonces retornar} $\bot$ \\
+8: & $tsa_{token} \leftarrow \text{\texttt{TsaRestClient.requestTimeStamp}}\big(\text{SHA-256}(\sigma_{\text{chip}}), \, \text{RFC\_3161}\big)$ \\
+9: & $cms_{ltv} \leftarrow \text{\texttt{assembleCMSSignedData}}\big(\sigma_{\text{chip}}, Cert_u, tsa_{token}\big)$ \\
+10: & $d^* \leftarrow \text{\texttt{PadesLtvProcessor.injectContentsAndDSS}}\big(pdf_{prep}, cms_{ltv}, \psi_{\text{PKI}}, CRL_{\text{RENIEC}}\big)$ \\
+11: & $Cert_{d^*} \leftarrow \text{\texttt{extractSignerCertificateFromCMS}}(d^*)$ \\
+12: & \textbf{si} $ID(Cert_{d^*}) \not\equiv ID(u) \lor \text{SHA-256}(\text{\texttt{extractByteRangeStream}}(d^*)) \neq h_{doc} \lor \neg\text{\texttt{validateFullPadesLtv}}(d^*)$\newline
+\quad \textbf{entonces retornar} $\bot$ \hfill $\triangleright$ Bloquea A1--A3 ($I_3$) \\
+13: & \texttt{S3FileStorageAdapter.putObjectWORM}\big($d^*$, AES-256, \texttt{Mode=COMPLIANCE}\big) \\
+14: & \texttt{DocumentLifecycleService.transitionState}\big($d^*$, \textit{Firmado}, $\text{SHA-256}(d^*)$\big); \, \textbf{retornar} $d^*$ \\
+\end{tabularx}
+}
+\noindent\rule{\textwidth}{1pt}
+\end{figure*}
+
+Como se aprecia en las líneas 4--6 del Algoritmo~\ref{alg:pades_ltv}, el servidor prepara el diccionario incremental en memoria, calcula únicamente el resumen SHA-256 de 32 bytes sobre el rango \texttt{/ByteRange} y transmite el paquete \texttt{intent} hacia \texttt{KILLAgent}, desacoplando el bus PC/SC del tamaño en megabytes del archivo. En la línea 12, el servidor re-extrae de forma autónoma la identidad desde el objeto CMS \texttt{SignedData} recién ensamblado y valida la coincidencia exacta $ID(Cert_{d^*}) \equiv ID(u)$ antes de permitir el bloqueo WORM.
+
+% --- ALGORITMO 2 (CON ANCLA EXTERNA EN MINIO WORM Y DETECCIÓN DE TRUNCAMIENTO DE COLA) ---
+\begin{figure*}[t]
+\phantomsection\refstepcounter{algoritmo}\label{alg:audit_hmac}
+\noindent\rule{\textwidth}{1pt}\par\vspace{2pt}
+\noindent\textbf{Algoritmo \thealgoritmo.} Sellado Criptográfico Encadenado \textit{Append-Only} con Anclaje Externo en MinIO WORM y Auditoría Anti-DBA ($I_4$).\par\vspace{2pt}
+\noindent\rule{\textwidth}{0.5pt}\par\vspace{2pt}
+{\scriptsize
+\noindent\textbf{Entrada:} Evento auditable $e_k = \langle ID_u, a_k, ts_k, IP_k, H(d^*) \rangle$; clave secreta $K_{\text{audit}}$ en bóveda del servidor de aplicación; periodo de anclaje $N \ge 1$.\newline
+\textbf{Salida:} Sello $\text{\texttt{rowSig}}_k$ (y ancla $\text{\texttt{anchor}}_m$ cada $N$ eventos) en inserción, o tupla de diagnóstico $\langle \text{Estado}, \text{Índice} \rangle$ en auditoría.\par\vspace{2pt}
+\noindent\rule{\textwidth}{0.4pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}r>{\raggedright\arraybackslash}X@{}}
+\multicolumn{2}{@{}l@{}}{\textbf{Procedimiento A: Inserción Sellada en Bitácora y Anclaje Externo} (\texttt{RowSignatureEngine.appendEvent}) \hfill $\triangleright$ Complejidad $\mathcal{O}(1)$ por fila} \\
+1: & \textbf{iniciar transacción serializable} en tabla \texttt{audit\_logs} (\textit{append-only}) \\
+2: & \textbf{si} $k = 1$ \textbf{entonces} $\text{\texttt{prevSig}} \leftarrow \text{SHA-256}(\text{\texttt{\textquotedbl CHASCA\_GENESIS\_DNIE30\textquotedbl}})$ \textbf{sino} $\text{\texttt{prevSig}} \leftarrow \text{\texttt{findLastRowSignature}}(k-1)$ \\
+3: & $\text{\texttt{payload}}_k \leftarrow ID_u \parallel a_k \parallel \text{\texttt{formatISO8601}}(ts_k) \parallel IP_k \parallel H(d^*) \parallel \text{\texttt{prevSig}}$ \\
+4: & $\text{\texttt{rowSig}}_k \leftarrow \text{HMAC-SHA256}\big(K_{\text{audit}}, \, \text{\texttt{payload}}_k\big)$; \, \texttt{ImmutableAuditLogRepository.insert}\big($k, e_k, \text{\texttt{prevSig}}, \text{\texttt{rowSig}}_k$\big) \\
+5: & \textbf{si} $k \bmod N = 0$ \textbf{entonces} publicar en MinIO WORM (\texttt{audit-anchors/}): \newline
+\quad $\text{\texttt{anchor}}_m = \langle k, ts_k, \text{\texttt{rowSig}}_k, \text{HMAC-SHA256}(K_{\text{audit}}, k \parallel \text{\texttt{rowSig}}_k) \rangle$ \\
+6: & \textbf{confirmar transacción} y \textbf{retornar} $\text{\texttt{rowSig}}_k$ \\
+\midrule
+\multicolumn{2}{@{}l@{}}{\textbf{Procedimiento B: Auditoría Integral Anti-DBA con Verificación de Cola} (\texttt{IntegrityVerificationService.verifyChain}) \hfill $\triangleright$ $\mathcal{O}(n)$} \\
+7: & $A^* \leftarrow \text{\texttt{MinioAnchorStore.fetchLatestVerifiedAnchor}}(K_{\text{audit}})$; \, $\mathcal{L} \leftarrow \text{\texttt{ImmutableAuditLogRepository.findAllOrderedByIdAsc}}()$ \\
+8: & \textbf{si} $|\mathcal{L}| < A^*.\text{count} \lor \neg\text{\texttt{MessageDigest.isEqual}}\big(\text{\texttt{findSignatureAtId}}(\mathcal{L}, A^*.\text{count}), \, A^*.\text{latestRowSig}\big)$ \textbf{entonces} \\
+9: & \quad \texttt{SecurityAlertService.triggerAlert}(\texttt{\textquotedbl TAIL\_TRUNCATION\_OR\_REPLACEMENT\textquotedbl}, $A^*.\text{count}$);\newline
+\quad \textbf{retornar} $\langle \text{\texttt{CORRUPTED\_TAIL}}, \, A^*.\text{count} \rangle$ \\
+10: & \textbf{fin si} \hfill $\triangleright$ Detecta borrado de últimas $k$ filas o sustitución total de \texttt{audit\_logs} \\
+11: & $\text{\texttt{expectedPrev}} \leftarrow \text{SHA-256}(\text{\texttt{\textquotedbl CHASCA\_GENESIS\_DNIE30\textquotedbl}})$ \\
+12: & \textbf{para cada} tupla $r_j \in \mathcal{L}$ \textbf{hacer} \\
+13: & \quad $\text{\texttt{recalcSig}}_j \leftarrow \text{HMAC-SHA256}\big(K_{\text{audit}}, \, r_j.ID_u \parallel r_j.a \parallel \text{\texttt{formatISO8601}}(r_j.ts) \parallel r_j.IP \parallel r_j.H(d^*) \parallel \text{\texttt{expectedPrev}}\big)$ \\
+14: & \quad \textbf{si} $\neg\text{\texttt{MessageDigest.isEqual}}(r_j.\text{\texttt{prevSig}}, \text{\texttt{expectedPrev}}) \lor \neg\text{\texttt{MessageDigest.isEqual}}(r_j.\text{\texttt{rowSig}}, \text{\texttt{recalcSig}}_j)$ \textbf{entonces} \\
+15: & \quad \quad \texttt{SecurityAlertService.triggerAlert}(\texttt{\textquotedbl TAMPER\_AT\_ROW\textquotedbl}, $r_j.\text{id}$);\newline
+\quad \quad \textbf{retornar} $\langle \text{\texttt{CORRUPTED\_ROW}}, \, r_j.\text{id} \rangle$ \hfill $\triangleright$ Detecta \texttt{UPDATE}/\texttt{DELETE} \\
+16: & \quad \textbf{fin si} \\
+17: & \quad $\text{\texttt{expectedPrev}} \leftarrow r_j.\text{\texttt{rowSig}}$ \\
+18: & \textbf{fin para} \\
+19: & \textbf{retornar} $\langle \text{\texttt{VERIFIED\_INTACT}}, \, |\mathcal{L}| \rangle$ \\
+\end{tabularx}
+}
+\noindent\rule{\textwidth}{1pt}
+\end{figure*}
+
+En el Algoritmo~\ref{alg:audit_hmac}, la verificación mediante encadenamiento interno sin anclaje externo sería vulnerable al ataque anti-forense elemental de truncar las últimas filas de la tabla. Al publicar periódicamente el objeto inmutable $\text{\texttt{anchor}}_m$ en MinIO S3 WORM (línea 5) y validarlo en tiempo constante con \texttt{MessageDigest.isEqual} antes del recorrido secuencial (líneas 7--10), el Procedimiento B detecta tanto manipulaciones o eliminaciones intermedias en $\mathcal{O}(n)$ como el truncamiento de cola y la sustitución completa de registros dentro del modelo de $\mathcal{A}_{\text{DBA}}$.
+
+\subsection{Topología de Despliegue y Reproducibilidad}
+En la estación cliente, las terminales operan sobre Microsoft Windows 10/11 Pro (64 bits) con lectoras USB PC/SC compatibles con ISO/IEC 7816, middleware PKCS\#11 de RENIEC y el binario autónomo \texttt{KILLAgent}. En el borde, Cloudflare Pages sirve los activos estáticos de la SPA y Cloudflare Access gobierna un túnel inverso saliente \texttt{cloudflared}. El núcleo de procesamiento se despliega en un VPS Linux Ubuntu Server 22.04 LTS (4 vCPU, 16 GB de RAM y almacenamiento SSD NVMe) mediante Docker Engine 26.1 y Docker Compose aislando los contenedores \texttt{chasca-api}, \texttt{chasca-mysql} y \texttt{chasca-minio} en una red privada interna, con cierre de todos los puertos TCP públicos entrantes (80, 443, 3306, 8080 y 9000) y salida HTTPS exclusivamente hacia servicios PKI/TSA. Para respaldar la reproducibilidad científica antes del envío editorial final, el código fuente del backend, del agente local y de la aplicación web ---junto con los esquemas DDL, manifiestos Docker y guiones de prueba, depurados de credenciales y certificados privados--- se preparan para su publicación abierta bajo un identificador persistente DOI en Zenodo.
+
+% --- SECCIÓN 6: PROTOCOLO EXPERIMENTAL (SIN RESULTADOS NO EJECUTADOS) ---
+\section{Protocolo de Evaluación Experimental y Diseño del Estudio de Caso}\label{sec:experiments}
+
+En correspondencia con la quinta etapa de DSR \cite{hevner2004,peffers2007}, esta sección formaliza el protocolo empírico que integra las directrices para estudios de caso de Runeson y H\"ost \cite{runeson2009} con el diseño experimental de Wohlin et al. \cite{wohlin2012}. \emph{Nota metodológica:} dado que la fase de pruebas de campo y mediciones instrumentadas se encuentra actualmente pendiente de ejecución, en esta versión no se reportan resultados empíricos ni pruebas estadísticas observadas; se especifican íntegramente las preguntas de investigación, el protocolo de control, la infraestructura PKI real, las definiciones operacionales y las salvaguardas éticas necesarias para su ejecución reproducible.
+
+\subsection{Preguntas de Investigación e Hipótesis Verificables}
+\begin{itemize}
+    \item \textbf{RQ1 (Vinculación física DNIe 3.0, seguridad de \texttt{KILLAgent} y control contextual --- $I_1, I_2$):} ¿Supera la articulación de \texttt{KILLAgent} (validación \texttt{Origin} + token de emparejamiento + PKCS\#11), verificación CRL/OCSP y motor RBAC + ABAC el umbral del 90\% de efectividad ($\mathcal{E}_{\text{auth}} > 0.90$), mitigando suplantación, CSWSH y sustitución de hash frente a la línea base tradicional $B_0$?
+    \item \textbf{RQ2 (Precisión PAdES-LTV y resistencia al engaño visual --- $I_3$):} ¿Alcanza la orquestación y validación determinista \textit{fail-closed} en servidor una precisión superior al 95\% ($\mathcal{P}_{\text{PAdES}} > 0.95$) y el rechazo de los vectores \textit{Genuine PDF Forgeries} A1--A3 \cite{heher2027} frente a $B_0$ (validación en visor cliente)?
+    \item \textbf{RQ3 (Inmutabilidad anclada anti-$\mathcal{A}_{\text{DBA}}$ y sobrecarga local de persistencia --- $I_4$):} ¿Detecta el esquema MinIO WORM + bitácora MySQL anclada el 100\% de las alteraciones internas ---incluyendo truncamiento de cola y sustitución completa--- y cuál es su sobrecarga de latencia de escritura en el mismo VPS frente a una línea base local sin endurecimiento ($B_{\text{loc}}$)?
+    \item \textbf{RQ4 (Escalabilidad por tamaño, invarianza en chip y concurrencia):} ¿Permanece el tiempo de firma RSA-2048 en chip DNIe 3.0 estadísticamente invariante ($\mathcal{O}(1)$) al escalar documentos PDF/A entre 1, 5 y 20 MB gracias al envío de 32 B, manteniendo búsquedas indexadas en \texttt{JSON} por debajo del umbral de 2000 ms bajo 50 hilos concurrentes?
+\end{itemize}
+
+\subsection{Caso de Estudio, Líneas Base, Infraestructura PKI y Ética}
+\paragraph{Unidad de análisis y corpus.} Estudio de caso único sobre el flujo documental de una ONG de desarrollo social en Lima Metropolitana sujeta a fiscalización institucional. El corpus se compone de $N_{\text{doc}} = 300$ documentos PDF/A-1b/2b equitativamente distribuidos en cinco series archivísticas ISO 15489-1 (convenios interinstitucionales, informes financieros, adendas presupuestales, resoluciones directorales y actas de adjudicación) y tres estratos de tamaño ($S_1 = 1$ MB, $S_2 = 5$ MB y $S_3 = 20$ MB).
+
+\paragraph{Líneas base experimentales ($B_0$ y $B_{\text{loc}}$) frente a referencias contextuales.} Para evitar comparaciones cruzadas entre hardware y protocolos heterogéneos, todas las pruebas inferenciales contrastarán \textbf{Ch'asca} únicamente contra implementaciones ejecutadas en el mismo VPS y estaciones cliente:
+\begin{itemize}
+    \item \textbf{Línea base $B_0$ (sistema documental tradicional):} Aplicación web desplegada sobre el mismo stack Spring Boot + MySQL 8.0 + almacenamiento de objetos estándar sin políticas WORM ni cadena HMAC, empleando autenticación clásica por contraseña sin DNIe 3.0 ni verificación hardware en 2 fases, autorización RBAC estática (sin ABAC contextual ni revocación por extracción) y verificación de firmas delegada al visor PDF del cliente (aplicable a escenarios E1--E10).
+    \item \textbf{Línea base $B_{\text{loc}}$ (persistencia local sin endurecimiento):} Configuración aislada en el mismo VPS que registra archivos y eventos en MySQL/S3 sin cálculo de \texttt{rowSig}, anclaje WORM ni bloqueo \texttt{COMPLIANCE}, permitiendo medir el costo real exacto del endurecimiento criptográfico de $I_4$ en igualdad de hardware.
+    \item \textbf{Referencias publicadas de contexto:} Los desempeños reportados por Doynov et al. \cite{doynov2026} (QTSP poscuántico en 27 contenedores), Han y Son \cite{han2025} (IPFS + Ethereum) y Soni et al. \cite{soni2026} (\texttt{MAPE-ZT} en Python) se reportan exclusivamente como marco referencial descriptivo del estado del arte y \emph{no serán objeto de contraste inferencial directo} ($p$ o tamaño de efecto) por diferir en infraestructura y protocolo.
+\end{itemize}
+
+\paragraph{Infraestructura PKI y validación externa de firmas.} Con transparencia técnica, el prototipo implementado opera con tarjetas físicas DNIe 3.0 vigentes emitidas por RENIEC, consultas de estado de certificado vía puntos de distribución CRL (configurados en el protocolo experimental en modo estricto \textit{fail-closed} y registrando explícitamente si el reflejo consultado pertenece a la PKI de producción RENIEC o a un entorno de pruebas) y sellado de tiempo RFC 3161 provisto por \textbf{DigiCert (Adobe AATL)} con respaldo en \textbf{FreeTSA.org}. Se precisa explícitamente la distinción entre la conformidad técnica RFC 3161/ETSI PAdES-LTV y el estatus de una TSA formalmente acreditada bajo el marco nacional INDECOPI/IOFE. Como control independiente de calidad, una muestra estratificada de los documentos PDF/A firmados será sometida al validador externo \textbf{EU DSS (\textit{Digital Signature Services})} y/o al \textbf{Validador de Firmas de RENIEC} para auditar la estructura \texttt{/Contents} y \texttt{/DSS}.
+
+\paragraph{Declaración ética y tratamiento de datos (Ley N.º 29733).} Para asegurar coherencia estricta con la Ley N.º 29733 \cite{ley29733} de protección de datos personales: (i) el corpus de 300 documentos corresponderá exclusivamente a expedientes previamente \textbf{anonimizados y desidentificados} bajo convenio formal con la ONG participante ---eliminando nombres reales de beneficiarios, datos biométricos e identificadores tributarios sensibles--- o a \textbf{documentos sintéticos estructuralmente equivalentes} a sus cinco series archivísticas; (ii) la participación de operadores titulares de DNIe 3.0 exigirá \textbf{consentimiento informado por escrito} tras explicar el alcance del estudio y el confinamiento del PIN; y (iii) la ejecución empírica quedará sujeta a la emisión previa del número de registro o constancia de exención por parte del \textbf{Comité de Ética de Investigación de la UPC}.
+
+\subsection{Métricas Operacionales, Vectores y Plan Estadístico}
+Para eliminar ambigüedades en las métricas de clasificación de seguridad, cada escenario operacionaliza estrictamente los conteos binarios: $TP$ denota la concesión legítima ante solicitud válida o bloqueo correcto de ataque según el objetivo de cada prueba ($TN$ en el sentido complementario), $FP$ representa la aceptación errónea de un acceso no autorizado, falsificación A1--A3 o falsa alarma en cadena intacta, y $FN$ cuantifica un rechazo indebido de operación legítima o falla de detección de ataque real ($\mathcal{A}_{\text{web}}$, $\mathcal{A}_{\text{loc}}$ o $\mathcal{A}_{\text{DBA}}$). Se definen:
+\begin{equation}
+\begin{aligned}
+    \mathcal{E}_{\text{auth}} &= \frac{TP + TN}{TP + TN + FP + FN}, &
+    \mathcal{P} &= \frac{TP}{TP + FP}, \\[4pt]
+    \mathcal{R} &= \frac{TP}{TP + FN}, &
+    F_1 &= \frac{2\mathcal{P}\mathcal{R}}{\mathcal{P}+\mathcal{R}}
+\end{aligned}
+\label{eq:metrics}
+\end{equation}
+
+La Tabla~\ref{tab:security_protocol} detalla la matriz de $M = 900$ ensayos distribuidos uniformemente en $k = 10$ bloques independientes de ejecución ($n/k$ ensayos por bloque), incorporando los vectores CSWSH (E5), sustitución de hash (E6) y truncamiento de cola / sustitución completa de bitácora (E10). Como único método inferencial para proporciones, se aplicarán \textbf{intervalos de confianza al 95\% de Wilson} sobre $n$, la \textbf{prueba exacta de Fisher} ($\alpha = 0.05$) frente a $B_0$ y la \textbf{$h$ de Cohen} (complementada con \textit{odds ratio}) como tamaño de efecto.
+
+% --- TABLA 3 (PROTOCOLO DE SEGURIDAD SIN CIFRAS INVENTADAS, M=900 EXACTO) ---
+\begin{table*}[t]
+\caption{Matriz del protocolo de evaluación de seguridad frente a $B_0$ ($M = 900$ ensayos totales en $k = 10$ bloques independientes; estado: \textbf{Pendiente de ejecución empírica}).}
+\label{tab:security_protocol}
+\scriptsize
+\setlength{\tabcolsep}{2.4pt}
+\renewcommand{\arraystretch}{1.10}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.95cm}crrccc>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Escenario Experimental y Vector Evaluado} & \textbf{Inv.} & \textbf{$n$} & \textbf{$n/k$} & \textbf{IC$_{95\%}$} & \textbf{Prueba} & \textbf{Efecto} & \textbf{Meta de Aceptación y Condición de Fallo} \\
+\midrule
+E1: Autenticación legítima 2-fases DNIe 3.0 + PIN & $I_1$ & $150$ & $15$ & Wilson & Fisher & $h$ / OR & $\mathcal{E}_{\text{auth}} > 90\%$ con $FP = 0$; fallos físicos tratados en \textit{fail-closed}. \\
+E2: Bloqueo suplantación (sin chip / cert. revocado) & $I_1$ & $90$ & $9$ & Wilson & Fisher & $h$ / OR & Bloqueo determinista ($100\%$ objetivo) en filtro PEP/OCSP-CRL. \\
+E3: Revocación por extracción física DNIe ($<5\text{ s}$) & $I_1$ & $60$ & $6$ & Wilson & Fisher & $h$ / OR & Invalidación automática de sesión JWT y de hardware tras corte PC/SC. \\
+E4: Autorización contextual RBAC + ABAC (\textit{Deny All}) & $I_2$ & $90$ & $9$ & Wilson & Fisher & $h$ / OR & Bloqueo contextual por rol/área/IP/sensibilidad ($\mathcal{E} > 90\%$). \\
+E5: Ataques CSWSH en \texttt{KILLAgent} (\texttt{Origin} malicioso/\texttt{null}) & $I_1$ & $60$ & $6$ & Wilson & Fisher & $h$ / OR & Rechazo en \textit{handshake} HTTP Upgrade y \texttt{onOpen} ($100\%$ objetivo). \\
+E6: Sustitución de hash y falta de \textit{pairing token} & $I_1, I_3$ & $60$ & $6$ & Wilson & Fisher & $h$ / OR & Rechazo por agente/servidor de resúmenes ajenos al \texttt{signingIntent}. \\
+\textbf{Subtotal Acceso y Agente Local ($I_1, I_2$)} & $I_{1,2}$ & $\mathbf{510}$ & $\mathbf{51}$ & Wilson & Fisher & $h$ / OR & Meta global acceso $\mathcal{E}_{\text{auth}} > 90\%$ superior a $B_0$ ($p < 0.05$). \\
+\midrule
+E7: Suscripción y validación server-side PAdES-LTV & $I_3$ & $150$ & $15$ & Wilson & Fisher & $h$ / OR & Precisión $\mathcal{P}_{\text{PAdES}} > 95\%$ y validación externa EU DSS / RENIEC. \\
+E8: Rechazo \textit{Genuine PDF Forgeries} (A1, A2, A3) & $I_3$ & $90$ & $9$ & Wilson & Fisher & $h$ / OR & Detección del $100\%$ en servidor mediante $ID(Cert_{d^*}) \equiv ID(u)$. \\
+\textbf{Subtotal Firma y Validación PAdES ($I_3$)} & $I_3$ & $\mathbf{240}$ & $\mathbf{24}$ & Wilson & Fisher & $h$ / OR & Precisión consolidada $> 95\%$ superior a visor cliente $B_0$. \\
+\midrule
+E9: Bloqueo de borrado físico en MinIO S3 WORM & $I_4$ & $60$ & $6$ & Wilson & Fisher & $h$ / OR & Rechazo \texttt{COMPLIANCE} ante comandos \texttt{mc rm} / sobrescritura API. \\
+E10: Detección $\mathcal{A}_{\text{DBA}}$ (\texttt{UPDATE/DELETE}/trunc. cola/sustit.) & $I_4$ & $90$ & $9$ & Wilson & Fisher & $h$ / OR & Detección $100\%$ por Algoritmo~\ref{alg:audit_hmac} contra ancla WORM cada $N$ eventos. \\
+\textbf{Subtotal Persistencia Inmutable ($I_4$)} & $I_4$ & $\mathbf{150}$ & $\mathbf{15}$ & Wilson & Fisher & $h$ / OR & $\text{TPR}_{\text{DBA}} = 100\%$ en los 4 subtipos (22--23 por vector) y $FP = 0$. \\
+\midrule
+\textbf{Total Global del Protocolo Experimental} & $I_1$--$I_4$ & $\mathbf{900}$ & $\mathbf{90}$ & Wilson & Fisher & $h$ / OR & Ejecución controlada pendiente sobre $N_{\text{doc}}=300$ documentos. \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+Para las mediciones de desempeño temporal y escalabilidad (Tabla~\ref{tab:latency_protocol}), cada operación se repetirá $R = 30$ veces utilizando el reloj monotónico \texttt{System.nanoTime()} tras una fase de calentamiento de 50 iteraciones en la máquina virtual de Java (\textit{JVM warm-up}). Se empleará de manera uniforme media $\mu$, desviación estándar $\sigma$, \textbf{intervalo de confianza al 95\% basado en la distribución $t$ de Student ($gl = 29$)} y percentiles $p50$/$p95$, aplicando Shapiro-Wilk, prueba $t$ o $U$ de Mann-Whitney (frente a $B_{\text{loc}}$ en el mismo VPS) y ANOVA de un factor sobre tiempos en chip DNIe 3.0 entre 1, 5 y 20 MB ($\alpha = 0.05$).
+
+% --- TABLA 4 (PROTOCOLO DE LATENCIAS Y RECURSOS SIN VALORES FABRICADOS) ---
+\begin{table*}[t]
+\caption{Protocolo de medición de latencia operativa, invarianza en chip y recursos ($R = 30$ repeticiones por escenario tras 50 iteraciones de calentamiento JVM; estado: \textbf{Pendiente de ejecución}).}
+\label{tab:latency_protocol}
+\scriptsize
+\setlength{\tabcolsep}{3.0pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{4.6cm}cc>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Operación / Escenario de Desempeño} & \textbf{Métrica / IC} & \textbf{Prueba Estadística} & \textbf{Propósito Experimental y Criterio de Referencia} \\
+\midrule
+Handshake WSS + \textit{pairing} + cert. DNIe 3.0 & $\mu\pm\sigma$, $t_{29}$, $p50/p95$ & Descriptiva + $t$/MWU & Medir costo del acoplamiento TLS loopback y validación de origen/token. \\
+Consulta CRL/OCSP de revocación & $\mu\pm\sigma$, $t_{29}$, $p50/p95$ & Descriptiva & Cuantificar latencia PKI externa en red bajo política \textit{fail-closed}. \\
+Evaluación contextual RBAC + ABAC (PDP) & $\mu\pm\sigma$, $t_{29}$, $p50/p95$ & Descriptiva (vs. $B_0$) & Medir sobrecarga de evaluación de atributos respecto a RBAC estático. \\
+Revocación tras extracción física (\textit{heartbeat}) & $\mu\pm\sigma$, $t_{29}$, $p95$ & Descriptiva & Verificar invalidación de sesión JWT/hardware por debajo de 5000 ms. \\
+\midrule
+Ceremonia PAdES-LTV (1, 5 y 20 MB) & $\mu\pm\sigma$, $t_{29}$, $p50/p95$ & ANOVA 1 factor & Contrastar invarianza $\mathcal{O}(1)$ en chip DNIe 3.0 ($p > 0.05$ entre tamaños). \\
+Validación server-side CMS/identidad PDF & $\mu\pm\sigma$, $t_{29}$, $p50/p95$ & Descriptiva & Medir tiempo de inspección determinista anti-\textit{Genuine PDF Forgeries}. \\
+\midrule
+Escritura WORM + HMAC + ancla cada $N$ (1 MB) & $\mu\pm\sigma$, $t_{29}$, $p50/p95$ & $t$ o Mann-Whitney ($d/\delta$) & Cuantificar sobrecarga en el mismo VPS frente a $B_{\text{loc}}$ sin endurecimiento. \\
+Inserción sellada en \texttt{audit\_logs} (Alg.~\ref{alg:audit_hmac}-A) & $\mu\pm\sigma$, $t_{29}$, $p95$ & Regresión sobre tamaño & Verificar complejidad $\mathcal{O}(1)$ por fila independiente del historial. \\
+Auditoría de $10^4$ filas con ancla (Alg.~\ref{alg:audit_hmac}-B) & $\mu\pm\sigma$, $t_{29}$, tuplas/s & Escala sobre $|\mathcal{L}|$ & Caracterizar rendimiento real de verificación lineal $\mathcal{O}(n)$. \\
+Búsqueda \texttt{JSON} indexada (50 hilos) y RAM & $\mu\pm\sigma$, $t_{29}$, MB pico & $t$ unidireccional & Verificar respuesta $<2000$ ms bajo concurrencia y huella de memoria propia. \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\subsection{Amenazas a la Validez}\label{sec:threats}
+Siguiendo la taxonomía de Wohlin et al. \cite{wohlin2012}, se \emph{discuten} cuatro categorías de amenazas a la validez previstas en la ejecución del protocolo:
+\begin{itemize}
+    \item \textbf{Validez de constructo:} Las propiedades $I_1$--$I_4$ se operacionalizan mediante veredictos binarios auditables alineados con ISO/IEC 25010 \cite{iso25010}, perfiles ETSI EN 319 142-1 \cite{etsi2024} y los vectores A1--A3 \cite{heher2027}, complementados con verificación mediante un validador independiente externo (EU DSS o RENIEC).
+    \item \textbf{Validez interna:} Las fluctuaciones de red hacia reflectores CRL/OCSP y servidores TSA públicos (DigiCert/FreeTSA) se aíslan instrumentando relojes separados entre cómputo local en \texttt{KILLAgent}, servidor backend y red externa, previo calentamiento JVM de 50 iteraciones. Asimismo, se declara la diferencia entre conformidad técnica RFC 3161 y acreditación legal formal de TSA bajo IOFE.
+    \item \textbf{Validez externa:} El diseño contempla un estudio de caso único en una ONG de Lima Metropolitana, estaciones Windows 10/11 Pro (64 bits) y tarjetas DNIe 3.0 de RENIEC. Aunque el uso de estándares abiertos (PKCS\#11, ISO/IEC 7816, PAdES-LTV, RFC 3161 y S3 WORM) sugiere portabilidad hacia ecosistemas compatibles con eIDAS, dicha \textbf{transferibilidad constituye una hipótesis} que requerirá estudios empíricos multi-caso posteriores para su generalización.
+    \item \textbf{Validez de conclusión:} Al encontrarse pendiente la fase empírica, ninguna hipótesis ha sido aún contrastada. Cuando el protocolo se ejecute, se mitigará el riesgo de errores de Tipo I y II mediante bloques independientes ($k = 10$), $R = 30$ repeticiones y métodos inferenciales únicos declarados \textit{a priori} (Wilson y Fisher para proporciones; $t$ de Student/Mann-Whitney para latencias).
+\end{itemize}
+
+% --- SECCIÓN 7: CONCLUSIONES Y PERSPECTIVAS ---
+\section{Conclusiones y Perspectivas}\label{sec:conclusions}
+
+En este artículo se presentó el diseño formal, el análisis de seguridad y la implementación arquitectónica de \textbf{Ch'asca}, una arquitectura web Zero Trust orientada a fortalecer la autenticidad documental y la trazabilidad forense en una ONG de Lima Metropolitana mediante el chip ciudadano DNIe 3.0 y firmas digitales PAdES-LTV. Las principales conclusiones técnicas derivadas del desarrollo e inspección del diseño son:
+
+\begin{enumerate}
+    \item \textbf{Intermediación criptográfica local bajo modelo de adversario explícito:} El agente \texttt{KILLAgent} supera el aislamiento del navegador manteniendo la clave privada confinada en el DNIe 3.0, integrando validación RFC 6454 \cite{rfc6454} de \texttt{Origin} en doble capa, token de emparejamiento por sesión, certificado TLS loopback sin CA raíz local, captura de PIN aislada de teclado/pantalla y protección WYSIWYS acompañada de \texttt{signingIntent} frente a ataques de sustitución de hash.
+    \item \textbf{Orquestación PAdES-LTV y validación determinista en servidor:} La transferencia exclusiva de un resumen SHA-256 de 32 bytes hacia el lector PC/SC desacopla la comunicación del hardware respecto al tamaño del expediente, mientras que la re-extracción autónoma de la identidad X.509 en servidor bloquea en origen los vectores de falsificación visual A1--A3 antes de admitir documentos.
+    \item \textbf{Persistencia híbrida con anclaje externo WORM:} Combinar almacenamiento MinIO S3 en modo \texttt{COMPLIANCE} con bitácoras MySQL \textit{append-only} selladas por fila (HMAC-SHA256) y ancladas periódicamente cada $N$ eventos en el bucket WORM subsana la vulnerabilidad clásica de truncamiento de cola y sustitución total de registros frente a un DBA malicioso ($\mathcal{A}_{\text{DBA}}$), con complejidad $\mathcal{O}(1)$ en inserción/verificación por fila y $\mathcal{O}(n)$ en auditoría integral.
+    \item \textbf{Protocolo reproducible pendiente de evaluación empírica:} Se deja estructurado un protocolo experimental de 900 ensayos sobre 300 documentos anonimizados o sintéticos equivalentes contra una línea base local implementada ($B_0$ y $B_{\text{loc}}$), con tratamiento ético explícito conforme a la Ley N.º 29733 y sin recurrir a comparaciones estadísticas inválidas contra cifras externas de otro hardware.
+\end{enumerate}
+
+Como \textbf{limitaciones actuales} se reconocen el alcance de estudio de caso único, la dependencia de Microsoft Windows 10/11 en \texttt{KILLAgent}, el acoplamiento a perfiles PKCS\#11 del DNIe 3.0 peruano, el uso actual de TSA pública compatible RFC 3161 en lugar de una TSA nacional acreditada por INDECOPI/IOFE, la exclusión de atacantes con acceso \textit{root} al disco VPS o \textit{malware} de núcleo en el cliente, y el carácter pendiente de las pruebas empíricas de campo.
+
+Como \textbf{trabajo futuro inmediato} se proyecta: (i) obtener la constancia ética institucional y ejecutar el protocolo completo de $M = 900$ ensayos y $R = 30$ repeticiones, incluyendo la auditoría externa mediante EU DSS y el validador de RENIEC; (ii) liberar el paquete de replicación (código fuente libre de secretos, esquemas DDL y \textit{scripts} de verificación) con DOI permanente en Zenodo; (iii) compilar variantes nativas de \texttt{KILLAgent} para GNU/Linux y macOS mediante GraalVM Native Image; e (iv) incorporar esquemas híbridos poscuánticos (ML-DSA-65 + RSA-2048) en perfil PAdES-LTA conforme evolucionen los sistemas operativos de tarjetas ciudadanas.
+
+% --- CRÉDITOS Y DECLARACIONES 100% EN ESPAÑOL ---
+\begin{credits}
+\subsubsection{\ackname}
+Los autores agradecen a la Universidad Peruana de Ciencias Aplicadas (UPC) por el respaldo académico y metodológico brindado durante el diseño de esta investigación.
+
+\subsubsection{\ethicsname}
+En observancia de la Ley N.º 29733 \cite{ley29733} de protección de datos personales, la ejecución empírica prevista en la Sección~\ref{sec:experiments} se restringirá exclusivamente a expedientes previamente anonimizados y desidentificados bajo convenio formal con la ONG participante o a documentos sintéticos estructuralmente equivalentes. Toda operación presencial con tarjetas DNIe 3.0 requerirá consentimiento informado por escrito de sus titulares y la aprobación o constancia de exención previa emitida por el Comité de Ética de Investigación de la UPC.
+
+\subsubsection{\discintname}
+Los autores declaran que no existen conflictos de intereses financieros ni relaciones personales que influyan en el trabajo reportado. Los experimentos empíricos descritos en la Sección~\ref{sec:experiments} no han sido ejecutados aún y no se presentan métricas experimentales simuladas ni no verificadas. Se declara el uso de herramientas de inteligencia artificial generativa exclusivamente para la revisión gramatical, estructuración de tablas/diagramas en \LaTeX{} y edición de estilo académico en español, bajo supervisión, verificación integral y plena responsabilidad de los autores.
+\end{credits}
+
+% --- REFERENCIAS ---
+\bibliographystyle{splncs04}
+\bibliography{referencias}
+
+\end{document}
